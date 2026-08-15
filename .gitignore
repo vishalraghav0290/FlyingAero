@@ -1,0 +1,17 @@
+node_modules/
+.next/
+*.log
+.DS_Store
+
+# secrets (keep the template)
+.env
+.env*
+!.env.example
+
+# local-only / generated
+_reference/
+_legacy-express/
+data/
+public/vendor/
+.vercel/
+.wrangler/

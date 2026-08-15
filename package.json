@@ -1,0 +1,38 @@
+{
+  "name": "skyradar",
+  "version": "0.2.0",
+  "private": true,
+  "description": "A Flightradar24-style live flight tracker powered by the OpenSky Network API (Next.js)",
+  "type": "module",
+  "engines": {
+    "node": ">=20.9"
+  },
+  "scripts": {
+    "dev": "next dev -H 127.0.0.1 -p 3000",
+    "build": "next build",
+    "start": "next start -H 127.0.0.1 -p 3000",
+    "postinstall": "node scripts/copy-maplibre-worker.js",
+    "check:opensky": "node scripts/check-opensky.js",
+    "setup:aircraft-db": "node scripts/build-aircraft-db.js",
+    "setup:geodata": "node scripts/build-geodata.js",
+    "setup": "npm run setup:aircraft-db && npm run setup:geodata"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@deck.gl/core": "9.4.0",
+    "@deck.gl/extensions": "9.4.0",
+    "@deck.gl/layers": "9.4.0",
+    "@deck.gl/mapbox": "9.4.0",
+    "@fontsource/open-sans": "5.2.7",
+    "@fontsource/roboto-condensed": "5.2.8",
+    "@loaders.gl/core": "4.5.2",
+    "@luma.gl/core": "9.4.2",
+    "@luma.gl/engine": "9.4.2",
+    "@math.gl/web-mercator": "4.1.0",
+    "maplibre-gl": "6.12.0",
+    "next": "16.3.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "server-only": "0.0.1"
+  }
+}

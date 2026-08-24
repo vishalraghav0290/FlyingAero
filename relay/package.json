@@ -1,0 +1,13 @@
+{
+  "name": "skyradar-opensky-relay",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Key-protected relay for OpenSky API calls (Koyeb / Render)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js"
+  }
+}

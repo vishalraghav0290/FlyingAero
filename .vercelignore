@@ -1,0 +1,22 @@
+# Files NOT uploaded by `vercel deploy`. With this file present Vercel ignores .gitignore,
+# so secrets and local folders must be listed here explicitly.
+
+# secrets: credentials go into Vercel environment variables instead
+.env
+.ENV
+.env.*
+.ENV.*
+!.env.example
+
+# local-only folders
+.vercel
+worker
+.wrangler
+node_modules
+.next
+_reference
+_legacy-express
+public/vendor
+
+# data/ IS uploaded on purpose: the aircraft database, airports, navaids and borders are
+# built locally (npm run setup), and OpenSky's download server may block cloud IPs.

@@ -1,0 +1,6 @@
+name = "skyradar-opensky-relay"
+main = "relay.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+# Secret (not in this file): npx wrangler secret put RELAY_KEY

@@ -29,14 +29,19 @@ For production, run `npm run build` and then `npm start`.
 ## Deployment notes
 
 - The live feed, caches and aircraft database are kept in server memory, so the app works best as one long-running Node process.
-- OpenSky may block cloud provider IP ranges (Vercel / AWS among them). `/api/health?probe=1` shows whether OpenSky is reachable from wherever the app is running. `worker/` contains an optional, key-protected Cloudflare Worker relay.
+- OpenSky blocks cloud provider IPs (Vercel, Cloudflare and Render were all tested). Browsers can't call it directly either, because its CORS policy only allows opensky-network.org. So the app has two data sources, chosen with `DATA_SOURCE`:
+  - `auto` (default): OpenSky first; if it can't be reached or credits run out, it switches to the ADS-B aggregators for 15 minutes.
+  - `opensky`: OpenSky only. Good for running at home.
+  - `adsb`: adsb.lol + adsb.fi only, merged. Use this on Vercel and other cloud hosts.
+- With ADS-B, one request covers at most a 250 NM radius, so very zoomed-out views show only the centre. Trails then come only from positions the server has seen, because there's no flight-history endpoint.
+- `/api/health?probe=1` shows which sources are reachable from wherever the app runs. `relay/` (Node) and `worker/` (Cloudflare) contain optional key-protected OpenSky relays.
 - On Vercel, set `SITE_PASSWORD` (and optionally `SITE_USER`). Without a password the site refuses to serve, because the API spends your OpenSky credits.
 
 ## Data sources
 
 | Data | Source |
 |---|---|
-| Flight data | [OpenSky Network](https://opensky-network.org) |
+| Flight data | [OpenSky Network](https://opensky-network.org), [adsb.lol](https://adsb.lol) and [adsb.fi](https://adsb.fi) (ODbL) |
 | Aircraft metadata | OpenSky aircraft database |
 | Scheduled routes | [adsbdb](https://www.adsbdb.com) |
 | Airports and navaids | [OurAirports](https://ourairports.com) (public domain) |

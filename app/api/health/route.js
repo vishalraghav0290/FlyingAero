@@ -8,13 +8,19 @@ const PROBES = [
   ['opensky-auth', 'https://auth.opensky-network.org/auth/realms/opensky-network/.well-known/openid-configuration'],
   ['opensky-api', 'https://opensky-network.org/api/states/all?lamin=0&lomin=0&lamax=0.01&lomax=0.01'],
   ['adsbdb', 'https://api.adsbdb.com/v0/callsign/DLH400'],
+  ['adsb.lol', 'https://api.adsb.lol/v2/point/28.5/77.1/20'],
+  ['adsb.fi', 'https://opendata.adsb.fi/api/v3/lat/28.5/lon/77.1/dist/20'],
   ['control (example.com)', 'https://example.com/'],
 ];
 
 async function probe([name, url]) {
   const t0 = Date.now();
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(8000), cache: 'no-store' });
+    const r = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      cache: 'no-store',
+      headers: { 'User-Agent': 'SkyRadar/0.3 (+https://github.com/vishalraghav0290/FlyingAero)' },
+    });
     await r.arrayBuffer();
     return { name, ok: r.ok, status: r.status, ms: Date.now() - t0 };
   } catch (err) {
@@ -27,6 +33,9 @@ export async function GET(request) {
   const { client, db, config, feed } = services();
   const body = {
     authenticated: client.authenticated,
+    sourceMode: client.mode,
+    currentSource: client.kind,
+    lastSource: client.sourceName,
     aircraftDb: db.loaded,
     credits: client.credits,
     dailyCredits: config.feed.dailyCredits,

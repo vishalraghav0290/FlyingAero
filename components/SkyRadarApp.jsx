@@ -235,6 +235,17 @@ export default function SkyRadarApp() {
         <span id="status-text">Connecting…</span>
       </footer>
 
+      <div id="slow-notice" className="slow-notice" role="status" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
+        </svg>
+        <span id="slow-notice-text" />
+        <button type="button" id="slow-notice-close" aria-label="Dismiss notice" title="Dismiss">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+        </button>
+      </div>
+
       <div id="toast" className="toast" role="alert" hidden />
     </div>
   );

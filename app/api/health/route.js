@@ -37,6 +37,7 @@ export async function GET(request) {
     currentSource: client.kind,
     lastSource: client.sourceName,
     aircraftDb: db.loaded,
+    warmRegions: client.adsb.warmStatus(),
     credits: client.credits,
     dailyCredits: config.feed.dailyCredits,
     lastError: feed.lastError,

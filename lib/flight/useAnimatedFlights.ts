@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { Flight } from './types';
+import type { Flight, AircraftType } from './types';
 import { smoothFlightHeadings, createHeadingState } from './angleSmoother';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -12,8 +12,6 @@ const DEG2RAD = Math.PI / 180;
 
 /**
  * Position correction half-life in seconds.
- * When new API data arrives, the gap between our predicted position
- * and the real API position halves every this-many seconds.
  * Lower value = snappier correction; 1.5s feels natural for slow-moving icons.
  */
 const POS_HALFLIFE = 1.5;
@@ -30,6 +28,15 @@ const TARGET_FPS = 60;
 /** How often (ms) we poll the API */
 const POLL_MS = 10_000;
 
+/**
+ * Trail ring-buffer: max points stored per flight.
+ * At 1 point per second → ~3 min of visible history.
+ */
+const TRAIL_MAX_POINTS = 180;
+
+/** Append a trail point every this many frames (at 60fps = ~4pts/sec for quick visibility) */
+const TRAIL_FRAME_INTERVAL = 15;
+
 // ─── Internal state per flight ──────────────────────────────────────────────
 
 interface FlightState {
@@ -38,11 +45,13 @@ interface FlightState {
   callsign: string;
   altitude: number;
   velocity: number; // m/s from API
+  aircraftType: AircraftType;
+  airline: string;
+  country: string;
+  countryFlag: string;
 
   // API-reported anchor — snapped to the real API position on each fetch.
   // NOT advanced between fetches; only renderPos moves each frame.
-  // This prevents the "backward glitch" that occurred when stale cached API
-  // positions were behind the client's dead-reckoned renderPos.
   targetLat: number;
   targetLon: number;
   targetHeading: number; // continuous (unwrapped) from angle smoother
@@ -51,9 +60,18 @@ interface FlightState {
   renderLat: number;
   renderLon: number;
   renderHeading: number; // also continuous — only normalised for display
+
+  // Trail ring-buffer: list of [lon, lat] points (oldest first)
+  trail: [number, number][];
+  trailFrameCounter: number;
 }
 
 // ─── Hook ───────────────────────────────────────────────────────────────────
+
+export interface AnimatedFlightsResult {
+  flights: Flight[];
+  trailMap: Map<string, [number, number][]>;
+}
 
 /**
  * Custom hook: Flightradar24-quality smooth animation via dead reckoning.
@@ -73,19 +91,19 @@ interface FlightState {
  *
  *   4. Smoothly rotate renderHeading toward targetHeading.
  *
+ *   5. Append [lon, lat] to trail ring-buffer every TRAIL_FRAME_INTERVAL frames.
+ *
  * WHY WE DON'T ADVANCE targetPos:
- *   The server can return stale cached data (e.g. when OpenSky is offline
- *   and falls back to the mock simulation). If we were also advancing
+ *   The server can return stale cached data. If we were also advancing
  *   targetPos on the client, the cached (old) position would arrive and
  *   snap targetPos backward — causing the visible "glitch backward" bug.
- *   Keeping targetPos fixed means the worst case is a gentle correction
- *   forward or backward, never a jarring jump.
  *
  * RESULT: planes glide forward continuously, with small, smooth corrections
- * when real data arrives, and zero backward glitches.
+ * when real data arrives, zero backward glitches, and an accurate trail.
  */
-export function useAnimatedFlights() {
+export function useAnimatedFlights(): AnimatedFlightsResult {
   const [displayFlights, setDisplayFlights] = useState<Flight[]>([]);
+  const [trailMap, setTrailMap] = useState<Map<string, [number, number][]>>(new Map());
 
   // Mutable refs that persist across renders without triggering them
   const statesRef = useRef(new Map() as Map<string, FlightState>);
@@ -121,22 +139,15 @@ export function useAnimatedFlights() {
           // as far forward (in the direction of travel) as the current
           // renderPos.  This guards against stale cached API responses
           // that would otherwise pull the plane backward.
-          //
-          // We measure "forward progress" as the dot product of the
-          // displacement vector with the current heading unit vector.
-          // If the API position is behind renderPos we keep the old
-          // target so the rubber-band continues correcting gently forward.
           const hdgRad = s.renderHeading * DEG2RAD;
-          const ux = Math.sin(hdgRad); // heading unit vector (lon component)
-          const uy = Math.cos(hdgRad); // heading unit vector (lat component)
+          const ux = Math.sin(hdgRad);
+          const uy = Math.cos(hdgRad);
 
           const dLat = f.lat - s.renderLat;
           const dLon = (f.lon - s.renderLon) * Math.cos(s.renderLat * DEG2RAD);
 
-          // dot > 0 → API pos is ahead of renderPos → safe to snap
-          // dot ≤ 0 → API pos is behind → skip snap, keep existing target
           const dot = dLat * uy + dLon * ux;
-          if (dot > -0.005) { // tiny tolerance for floating-point noise
+          if (dot > -0.005) {
             s.targetLat = f.lat;
             s.targetLon = f.lon;
           }
@@ -145,6 +156,11 @@ export function useAnimatedFlights() {
           s.velocity = f.velocity;
           s.altitude = f.altitude;
           s.callsign = f.callsign;
+          // Update metadata in case it changed
+          s.aircraftType = f.aircraftType;
+          s.airline = f.airline;
+          s.country = f.country;
+          s.countryFlag = f.countryFlag;
         } else {
           // ── Brand-new flight — snap everything to actual position ──
           states.set(f.id, {
@@ -152,12 +168,18 @@ export function useAnimatedFlights() {
             callsign: f.callsign,
             altitude: f.altitude,
             velocity: f.velocity,
+            aircraftType: f.aircraftType,
+            airline: f.airline,
+            country: f.country,
+            countryFlag: f.countryFlag,
             targetLat: f.lat,
             targetLon: f.lon,
             targetHeading: f.heading,
             renderLat: f.lat,
             renderLon: f.lon,
             renderHeading: f.heading,
+            trail: [[f.lon, f.lat]],
+            trailFrameCounter: 0,
           });
         }
       }
@@ -203,6 +225,7 @@ export function useAnimatedFlights() {
       const hdgAlpha = 1 - Math.pow(0.5, dt / HDG_HALFLIFE);
 
       const out: Flight[] = [];
+      const newTrailMap = new Map<string, [number, number][]>();
 
       for (const s of states.values()) {
         // ─ 1. Dead reckoning: advance renderPos forward ────────────
@@ -222,15 +245,24 @@ export function useAnimatedFlights() {
         s.renderLon += dLonDeg;
 
         // ─ 2. Rubber-band: gently pull renderPos toward API truth ──
-        //    Between API updates targetPos stays fixed, so the rubber-band
-        //    creates a gentle forward bias correcting accumulated drift.
-        //    With POS_HALFLIFE = 1.5s the correction is subtle and smooth.
         s.renderLat += (s.targetLat - s.renderLat) * posAlpha;
         s.renderLon += (s.targetLon - s.renderLon) * posAlpha;
 
-        // ─ 4. Heading: smooth rotation toward target ──────────────
-        // Both values are continuous/unwrapped, so simple lerp works.
+        // ─ 3. Heading: smooth rotation toward target ──────────────
         s.renderHeading += (s.targetHeading - s.renderHeading) * hdgAlpha;
+
+        // ─ 4. Trail: append point every TRAIL_FRAME_INTERVAL frames ─
+        s.trailFrameCounter++;
+        if (s.trailFrameCounter >= TRAIL_FRAME_INTERVAL) {
+          s.trailFrameCounter = 0;
+          s.trail.push([s.renderLon, s.renderLat]);
+          // Ring-buffer: drop oldest point if over limit
+          if (s.trail.length > TRAIL_MAX_POINTS) {
+            s.trail.shift();
+          }
+        }
+
+        newTrailMap.set(s.id, s.trail);
 
         out.push({
           id: s.id,
@@ -240,15 +272,20 @@ export function useAnimatedFlights() {
           heading: s.renderHeading,
           altitude: s.altitude,
           velocity: s.velocity,
+          aircraftType: s.aircraftType,
+          airline: s.airline,
+          country: s.country,
+          countryFlag: s.countryFlag,
         });
       }
 
       setDisplayFlights(out);
+      setTrailMap(newTrailMap);
     };
 
     rafIdRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafIdRef.current);
   }, []);
 
-  return displayFlights;
+  return { flights: displayFlights, trailMap };
 }

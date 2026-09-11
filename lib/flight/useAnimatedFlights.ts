@@ -14,9 +14,9 @@ const DEG2RAD = Math.PI / 180;
  * Position correction half-life in seconds.
  * When new API data arrives, the gap between our predicted position
  * and the real API position halves every this-many seconds.
- * 0.5s → visually smooth, fully corrected within ~2 seconds.
+ * Lower value = snappier correction; 1.5s feels natural for slow-moving icons.
  */
-const POS_HALFLIFE = 0.5;
+const POS_HALFLIFE = 1.5;
 
 /**
  * Heading correction half-life in seconds.
@@ -39,9 +39,10 @@ interface FlightState {
   altitude: number;
   velocity: number; // m/s from API
 
-  // API-reported target — gets RESET to real position on each API fetch,
-  // then dead-reckoned forward between fetches so the rubber-band
-  // doesn't fight the dead reckoning movement.
+  // API-reported anchor — snapped to the real API position on each fetch.
+  // NOT advanced between fetches; only renderPos moves each frame.
+  // This prevents the "backward glitch" that occurred when stale cached API
+  // positions were behind the client's dead-reckoned renderPos.
   targetLat: number;
   targetLon: number;
   targetHeading: number; // continuous (unwrapped) from angle smoother
@@ -59,20 +60,29 @@ interface FlightState {
  *
  * HOW IT WORKS (per frame, ~60fps):
  *
- *   1. Dead-reckon BOTH renderPos and targetPos forward along heading
- *      at the flight's velocity.  This is critical — if we only
- *      dead-reckon renderPos, the rubber-band correction constantly
- *      pulls it back toward the stale targetPos, killing all movement.
+ *   1. Dead-reckon renderPos forward along heading at the flight's velocity.
+ *      targetPos is NOT advanced — it stays fixed at the last API truth.
  *
- *   2. Rubber-band renderPos toward targetPos.  Between API updates,
- *      target and render move in lockstep (error ≈ 0, correction ≈ 0).
- *      When fresh API data arrives, targetPos SNAPS to the real position.
- *      The small gap (prediction error) is smoothly corrected.
+ *   2. Rubber-band renderPos toward targetPos with exponential decay.
+ *      This creates a gentle "magnetic" correction that prevents drift
+ *      from accumulating indefinitely between API updates.
  *
- *   3. Smoothly rotate renderHeading toward targetHeading.
+ *   3. When fresh API data arrives, targetPos SNAPS to the new real
+ *      position (which should be close to where renderPos already is,
+ *      since we've been dead-reckoning).  Any small gap corrects smoothly.
  *
- * RESULT: planes glide forward continuously in the direction they're
- * facing, with small invisible corrections when real data arrives.
+ *   4. Smoothly rotate renderHeading toward targetHeading.
+ *
+ * WHY WE DON'T ADVANCE targetPos:
+ *   The server can return stale cached data (e.g. when OpenSky is offline
+ *   and falls back to the mock simulation). If we were also advancing
+ *   targetPos on the client, the cached (old) position would arrive and
+ *   snap targetPos backward — causing the visible "glitch backward" bug.
+ *   Keeping targetPos fixed means the worst case is a gentle correction
+ *   forward or backward, never a jarring jump.
+ *
+ * RESULT: planes glide forward continuously, with small, smooth corrections
+ * when real data arrives, and zero backward glitches.
  */
 export function useAnimatedFlights() {
   const [displayFlights, setDisplayFlights] = useState<Flight[]>([]);
@@ -107,14 +117,30 @@ export function useAnimatedFlights() {
 
         if (s) {
           // ── Existing flight ──────────────────────────────────────
-          // SNAP target to the real API position.
-          // Between the last fetch and now, we've been dead-reckoning
-          // targetPos forward.  The new API position is "truth", so we
-          // reset targetPos.  The difference between the dead-reckoned
-          // renderPos and the new targetPos is the prediction error,
-          // which the rubber-band will smoothly correct over ~1 second.
-          s.targetLat = f.lat;
-          s.targetLon = f.lon;
+          // Snap targetPos to the new API truth only if it is at least
+          // as far forward (in the direction of travel) as the current
+          // renderPos.  This guards against stale cached API responses
+          // that would otherwise pull the plane backward.
+          //
+          // We measure "forward progress" as the dot product of the
+          // displacement vector with the current heading unit vector.
+          // If the API position is behind renderPos we keep the old
+          // target so the rubber-band continues correcting gently forward.
+          const hdgRad = s.renderHeading * DEG2RAD;
+          const ux = Math.sin(hdgRad); // heading unit vector (lon component)
+          const uy = Math.cos(hdgRad); // heading unit vector (lat component)
+
+          const dLat = f.lat - s.renderLat;
+          const dLon = (f.lon - s.renderLon) * Math.cos(s.renderLat * DEG2RAD);
+
+          // dot > 0 → API pos is ahead of renderPos → safe to snap
+          // dot ≤ 0 → API pos is behind → skip snap, keep existing target
+          const dot = dLat * uy + dLon * ux;
+          if (dot > -0.005) { // tiny tolerance for floating-point noise
+            s.targetLat = f.lat;
+            s.targetLon = f.lon;
+          }
+
           s.targetHeading = f.heading;
           s.velocity = f.velocity;
           s.altitude = f.altitude;
@@ -179,7 +205,10 @@ export function useAnimatedFlights() {
       const out: Flight[] = [];
 
       for (const s of states.values()) {
-        // ─ 1. Dead reckoning: compute forward movement delta ───────
+        // ─ 1. Dead reckoning: advance renderPos forward ────────────
+        //    Only renderPos is dead-reckoned; targetPos stays fixed at
+        //    the last API truth.  This prevents stale cached API positions
+        //    from causing a "snap backward" glitch.
         const hdgRad = s.renderHeading * DEG2RAD;
         const v = s.velocity; // m/s
 
@@ -189,24 +218,13 @@ export function useAnimatedFlights() {
           ? (v * Math.sin(hdgRad) * dt) / (M_PER_DEG_LAT * cosLat)
           : 0;
 
-        // ─ 2. Advance BOTH render AND target by the same delta ────
-        //
-        // THIS IS THE KEY INSIGHT:
-        // If we only advance renderPos, the rubber-band constantly
-        // pulls it back toward the stale targetPos → plane doesn't move.
-        // By advancing both, they move in lockstep and the rubber-band
-        // error stays ≈ 0 between API updates.
-        //
-        // When fresh API data arrives, targetPos SNAPS to the real
-        // position, creating a small error that the rubber-band
-        // smoothly corrects.  Result: perfectly smooth movement.
-        //
         s.renderLat += dLatDeg;
         s.renderLon += dLonDeg;
-        s.targetLat += dLatDeg;
-        s.targetLon += dLonDeg;
 
-        // ─ 3. Rubber-band: correct prediction drift toward truth ──
+        // ─ 2. Rubber-band: gently pull renderPos toward API truth ──
+        //    Between API updates targetPos stays fixed, so the rubber-band
+        //    creates a gentle forward bias correcting accumulated drift.
+        //    With POS_HALFLIFE = 1.5s the correction is subtle and smooth.
         s.renderLat += (s.targetLat - s.renderLat) * posAlpha;
         s.renderLon += (s.targetLon - s.renderLon) * posAlpha;
 

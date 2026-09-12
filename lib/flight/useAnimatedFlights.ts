@@ -12,22 +12,23 @@ const DEG2RAD = Math.PI / 180;
 
 /**
  * Position correction half-life in seconds.
- * The gap between dead-reckoned position and the real API position
- * halves every this-many seconds.  0.4 s → fast but smooth convergence.
+ * When new API data arrives, the gap between our predicted position
+ * and the real API position halves every this-many seconds.
+ * 0.5s → visually smooth, fully corrected within ~2 seconds.
  */
-const POS_HALFLIFE = 0.4;
+const POS_HALFLIFE = 0.5;
 
 /**
  * Heading correction half-life in seconds.
- * Slightly slower than position so heading turns feel organic.
+ * Slightly slower so heading turns feel organic, not snappy.
  */
-const HDG_HALFLIFE = 0.3;
+const HDG_HALFLIFE = 0.35;
 
 /** Target render FPS for the animation loop */
 const TARGET_FPS = 60;
 
 /** How often (ms) we poll the API */
-const POLL_MS = 3_000;
+const POLL_MS = 10_000;
 
 // ─── Internal state per flight ──────────────────────────────────────────────
 
@@ -36,37 +37,47 @@ interface FlightState {
   id: string;
   callsign: string;
   altitude: number;
-  velocity: number;          // m/s from API
+  velocity: number; // m/s from API
 
-  // API-reported target (where the plane *actually* is)
+  // API-reported target — gets RESET to real position on each API fetch,
+  // then dead-reckoned forward between fetches so the rubber-band
+  // doesn't fight the dead reckoning movement.
   targetLat: number;
   targetLon: number;
-  targetHeading: number;     // continuous (unwrapped) heading from angle smoother
+  targetHeading: number; // continuous (unwrapped) from angle smoother
 
   // Client-side interpolated values (what gets rendered)
   renderLat: number;
   renderLon: number;
-  renderHeading: number;     // also continuous — only normalised for display
+  renderHeading: number; // also continuous — only normalised for display
 }
 
 // ─── Hook ───────────────────────────────────────────────────────────────────
 
 /**
- * Custom hook that fetches flights from the API and provides
- * Flightradar24-quality smooth animation via client-side dead reckoning.
+ * Custom hook: Flightradar24-quality smooth animation via dead reckoning.
  *
- * Instead of relying on Deck.gl transitions (which slide planes in straight
- * lines regardless of heading), we:
- *   1. Move each plane forward along its heading at its velocity every frame
- *   2. Smoothly rubber-band the rendered position toward the real API position
- *   3. Smoothly interpolate heading toward the API heading
+ * HOW IT WORKS (per frame, ~60fps):
  *
- * This means planes always travel in the direction they're facing.
+ *   1. Dead-reckon BOTH renderPos and targetPos forward along heading
+ *      at the flight's velocity.  This is critical — if we only
+ *      dead-reckon renderPos, the rubber-band correction constantly
+ *      pulls it back toward the stale targetPos, killing all movement.
+ *
+ *   2. Rubber-band renderPos toward targetPos.  Between API updates,
+ *      target and render move in lockstep (error ≈ 0, correction ≈ 0).
+ *      When fresh API data arrives, targetPos SNAPS to the real position.
+ *      The small gap (prediction error) is smoothly corrected.
+ *
+ *   3. Smoothly rotate renderHeading toward targetHeading.
+ *
+ * RESULT: planes glide forward continuously in the direction they're
+ * facing, with small invisible corrections when real data arrives.
  */
 export function useAnimatedFlights() {
   const [displayFlights, setDisplayFlights] = useState<Flight[]>([]);
 
-  // Mutable refs that persist across renders
+  // Mutable refs that persist across renders without triggering them
   const statesRef = useRef(new Map() as Map<string, FlightState>);
   const headingRef = useRef(createHeadingState());
   const rafIdRef = useRef(0);
@@ -95,7 +106,13 @@ export function useAnimatedFlights() {
         const s = states.get(f.id);
 
         if (s) {
-          // Existing flight — update targets, keep render position as-is
+          // ── Existing flight ──────────────────────────────────────
+          // SNAP target to the real API position.
+          // Between the last fetch and now, we've been dead-reckoning
+          // targetPos forward.  The new API position is "truth", so we
+          // reset targetPos.  The difference between the dead-reckoned
+          // renderPos and the new targetPos is the prediction error,
+          // which the rubber-band will smoothly correct over ~1 second.
           s.targetLat = f.lat;
           s.targetLon = f.lon;
           s.targetHeading = f.heading;
@@ -103,7 +120,7 @@ export function useAnimatedFlights() {
           s.altitude = f.altitude;
           s.callsign = f.callsign;
         } else {
-          // Brand-new flight — snap render to actual position
+          // ── Brand-new flight — snap everything to actual position ──
           states.set(f.id, {
             id: f.id,
             callsign: f.callsign,
@@ -162,7 +179,7 @@ export function useAnimatedFlights() {
       const out: Flight[] = [];
 
       for (const s of states.values()) {
-        // ─ 1. Dead reckoning: push forward along heading ─────────────
+        // ─ 1. Dead reckoning: compute forward movement delta ───────
         const hdgRad = s.renderHeading * DEG2RAD;
         const v = s.velocity; // m/s
 
@@ -172,16 +189,29 @@ export function useAnimatedFlights() {
           ? (v * Math.sin(hdgRad) * dt) / (M_PER_DEG_LAT * cosLat)
           : 0;
 
+        // ─ 2. Advance BOTH render AND target by the same delta ────
+        //
+        // THIS IS THE KEY INSIGHT:
+        // If we only advance renderPos, the rubber-band constantly
+        // pulls it back toward the stale targetPos → plane doesn't move.
+        // By advancing both, they move in lockstep and the rubber-band
+        // error stays ≈ 0 between API updates.
+        //
+        // When fresh API data arrives, targetPos SNAPS to the real
+        // position, creating a small error that the rubber-band
+        // smoothly corrects.  Result: perfectly smooth movement.
+        //
         s.renderLat += dLatDeg;
         s.renderLon += dLonDeg;
+        s.targetLat += dLatDeg;
+        s.targetLon += dLonDeg;
 
-        // ─ 2. Rubber-band: smoothly correct toward API truth ─────────
+        // ─ 3. Rubber-band: correct prediction drift toward truth ──
         s.renderLat += (s.targetLat - s.renderLat) * posAlpha;
         s.renderLon += (s.targetLon - s.renderLon) * posAlpha;
 
-        // ─ 3. Heading: smooth rotation toward target ─────────────────
-        // Both renderHeading and targetHeading are continuous/unwrapped,
-        // so a simple lerp always takes the shortest path.
+        // ─ 4. Heading: smooth rotation toward target ──────────────
+        // Both values are continuous/unwrapped, so simple lerp works.
         s.renderHeading += (s.targetHeading - s.renderHeading) * hdgAlpha;
 
         out.push({

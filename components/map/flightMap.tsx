@@ -27,6 +27,7 @@ interface Flight {
 export default function FlightMap() {
     const [flights, setFlights] = useState<Flight[]>([]);
     const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
+    const [currentZoom, setCurrentZoom] = useState<number>(4);
 
     useEffect(() => {
         const fetchFlights = async () => {
@@ -58,10 +59,10 @@ export default function FlightMap() {
         getPosition: (d) => [d.lon, d.lat],
         getAngle: (d) => -d.heading,
         getSize: 36,
+        sizeScale: currentZoom / 6,
+        sizeMinPixels: 8,
+        sizeMaxPixels: 80,
         getColor: (d) => d.id === selectedFlight?.id ? [255, 50, 50] : [255, 200, 0],
-        sizeScale: 1,
-        sizeMinPixels: 16,
-        sizeMaxPixels: 64,
 
         // SMOOTH ANIMATION ENGINE
         transitions: {
@@ -75,7 +76,8 @@ export default function FlightMap() {
             }
         },
         updateTriggers: {
-            getColor: [selectedFlight?.id]
+            getColor: [selectedFlight?.id],
+            sizeScale: [currentZoom]
         }
     });
 
@@ -87,6 +89,7 @@ export default function FlightMap() {
                 style={{ width: '100%', height: '100%' }}
                 mapStyle={`https://api.maptiler.com/maps/darkmatter/style.json?key=${process.env.NEXT_PUBLIC_MAPTILER_KEY || ''}`}
                 onClick={() => setSelectedFlight(null)}
+                onMove={(evt) => setCurrentZoom(evt.viewState.zoom)}
             >
                 <DeckGLOverlay layers={[iconLayer]} />
             </Map>

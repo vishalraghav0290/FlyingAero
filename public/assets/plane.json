@@ -1,0 +1,11 @@
+{
+    "airplane": {
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512,
+        "anchorX": 256,
+        "anchorY": 256,
+        "mask": true
+    }
+}

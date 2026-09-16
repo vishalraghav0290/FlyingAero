@@ -6,10 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "setup-maplibre": "mkdir -p public/lib/maplibre && cp node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs public/lib/maplibre/ && cp node_modules/maplibre-gl/dist/maplibre-gl-shared.mjs public/lib/maplibre/",
+    "postinstall": "npm run setup-maplibre"
   },
   "dependencies": {
     "@deck.gl/layers": "^9.4.0",
+    "@deck.gl/maplibre": "^9.4.0",
     "@deck.gl/react": "^9.4.0",
     "deck.gl": "^9.4.0",
     "dotenv": "^17.4.2",

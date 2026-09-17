@@ -1,5 +1,5 @@
-name = "skyradar-opensky-relay"
-main = "relay.js"
+name = "aerotrack-opensky-relay"
+main = "relay.ts"
 compatibility_date = "2026-09-01"
 workers_dev = true
 

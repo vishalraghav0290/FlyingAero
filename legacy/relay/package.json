@@ -1,13 +1,14 @@
 {
-  "name": "skyradar-opensky-relay",
+  "name": "aerotrack-opensky-relay",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Key-protected relay for OpenSky API calls (Koyeb / Render)",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.18"
   },
+  "main": "server.ts",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.ts"
   }
 }

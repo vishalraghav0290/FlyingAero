@@ -1,20 +1,20 @@
 {
-  "name": "skyradar",
+  "name": "aerotrack",
   "version": "0.2.0",
   "private": true,
-  "description": "A Flightradar24-style live flight tracker powered by the OpenSky Network API (Next.js)",
+  "description": "AeroTrack: a live flight tracker by Vishal Raghav, using free ADS-B data from adsb.lol and adsb.fi",
   "type": "module",
   "engines": {
-    "node": ">=20.9"
+    "node": ">=22.18"
   },
   "scripts": {
     "dev": "next dev -H 127.0.0.1 -p 3000",
     "build": "next build",
     "start": "next start -H 127.0.0.1 -p 3000",
-    "postinstall": "node scripts/copy-maplibre-worker.js",
-    "check:opensky": "node scripts/check-opensky.js",
-    "setup:aircraft-db": "node scripts/build-aircraft-db.js",
-    "setup:geodata": "node scripts/build-geodata.js",
+    "postinstall": "node scripts/copy-maplibre-worker.ts",
+    "check:opensky": "node scripts/check-opensky.ts",
+    "setup:aircraft-db": "node scripts/build-aircraft-db.ts",
+    "setup:geodata": "node scripts/build-geodata.ts",
     "setup": "npm run setup:aircraft-db && npm run setup:geodata"
   },
   "license": "MIT",
@@ -34,5 +34,11 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "6.0.3"
   }
 }

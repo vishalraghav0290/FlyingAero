@@ -1,6 +1,6 @@
 # Legacy
 
-Code that is no longer used by the app but is kept for reference. Nothing here is built or deployed.
+Code that is no longer used by the app but is kept for reference. Nothing here is built or deployed. Both relays are TypeScript (`server.ts`, `relay.ts`); the Node one runs directly with Node's built-in type stripping (Node 22.18+), and Wrangler bundles `.ts` itself.
 
 ## relay/
 

@@ -85,6 +85,17 @@ interface WarmPlanRegion {
   cells: Cell[];
 }
 
+/** Body of /api/warmup: how much of India's warm-up region is loaded. */
+export interface IndiaProgress {
+  region: string;
+  /** Grid cells covering India. */
+  cells: number;
+  /** Cells with live data. */
+  loaded: number;
+  /** Distinct aircraft in the loaded cells. */
+  aircraft: number;
+}
+
 export interface WarmStatus {
   region: string;
   cells: number;
@@ -366,6 +377,24 @@ export class AdsbClient {
       cells: r.cells.length,
       fresh: r.cells.filter((c) => now - (this.cells.get(c.key)?.at ?? 0) < CELL_MAX_AGE_MS).length,
     }));
+  }
+
+  /**
+   * Loading screen: pushes the warm-up along (India first, from New Delhi outwards) and
+   * reports how much of India is loaded. Each call counts as site activity, so the warm-up
+   * keeps running while the loading screen polls.
+   */
+  indiaProgress(): IndiaProgress {
+    this.lastActivityAt = Date.now();
+    this.warmTick();
+    this.warm ??= warmPlan();
+    const india = this.warm[0];
+    const now = Date.now();
+    const fresh = india.cells
+      .map((c) => this.cells.get(c.key))
+      .filter((e): e is CellEntry => e !== undefined && now - e.at < CELL_MAX_AGE_MS);
+    const aircraft = new Set(fresh.flatMap((e) => e.states.map((s) => s[0]))).size;
+    return { region: india.name, cells: india.cells.length, loaded: fresh.length, aircraft };
   }
 
   /** Runs requests to one host one at a time, REQUEST_GAP_MS apart. */

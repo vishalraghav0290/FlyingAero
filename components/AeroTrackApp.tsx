@@ -26,6 +26,8 @@ export default function AeroTrackApp() {
       .catch((err) => {
         if (cancelled) return;
         console.error('AeroTrack failed to start:', err);
+        const loader = document.getElementById('loader');
+        if (loader) loader.hidden = true;
         const toast = document.getElementById('toast');
         if (toast) {
           toast.textContent = 'The map could not start. Your browser may not support WebGL.';
@@ -252,6 +254,42 @@ export default function AeroTrackApp() {
       </div>
 
       <div id="toast" className="toast" role="alert" hidden />
+
+      {/* Initial loading screen: stays up until the planes over India are loaded (lib/client/loader.ts) */}
+      <div id="loader" className="loader" role="status" aria-live="polite" aria-busy="true">
+        <div className="loader__card">
+          <svg className="loader__radar" viewBox="0 0 24 24" width="56" height="56" aria-hidden="true">
+            <circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
+            <circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" strokeWidth="1" opacity=".6" />
+            <path className="loader__sweep" d="M12 12 L19.4 4.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+          </svg>
+          <p className="loader__brand">
+            aero<strong>track</strong> <span>by Vishal Raghav</span>
+          </p>
+          <p className="loader__title">Loading live flights over India</p>
+          <p className="loader__sub" id="loader-sub">
+            Starting from New Delhi…
+          </p>
+          <div
+            className="loader__bar"
+            id="loader-bar"
+            role="progressbar"
+            aria-label="Flights loaded over India"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={0}
+          >
+            <div className="loader__fill" id="loader-fill" />
+          </div>
+          <p className="loader__count" id="loader-count">
+            Connecting to the flight data sources…
+          </p>
+          <button type="button" className="loader__skip" id="loader-skip">
+            Show the map now
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

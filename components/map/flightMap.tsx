@@ -1,10 +1,13 @@
 'use client'
-import React, { useState, useEffect } from "react";
-import Map, { useControl } from "react-map-gl/maplibre";
+import React, { useState } from "react";
+import MapGL, { useControl } from "react-map-gl/maplibre";
 import { setWorkerUrl } from "maplibre-gl";
 import { MapLibreOverlay } from "@deck.gl/maplibre";
 import { IconLayer } from "@deck.gl/layers";
 import 'maplibre-gl/dist/maplibre-gl.css'; // MUST BE IMPORTED FOR SMOOTH LOADING
+
+import type { Flight } from "@/lib/flight/types";
+import { useAnimatedFlights } from "@/lib/flight/useAnimatedFlights";
 
 setWorkerUrl('/lib/maplibre/maplibre-gl-worker.mjs');
 
@@ -14,39 +17,12 @@ function DeckGLOverlay(props: { layers: any[]; interleaved?: boolean }) {
     return null;
 }
 
-interface Flight {
-    id: string;
-    callsign: string;
-    lon: number;
-    lat: number;
-    heading: number;
-    altitude: number;
-    velocity: number;
-}
-
 export default function FlightMap() {
-    const [flights, setFlights] = useState<Flight[]>([]);
+    // Dead-reckoned flights updated at ~30fps — planes move continuously
+    const flights = useAnimatedFlights();
+
     const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
     const [currentZoom, setCurrentZoom] = useState<number>(4);
-
-    useEffect(() => {
-        const fetchFlights = async () => {
-            try {
-                const res = await fetch('/api/flight');
-                if (!res.ok) {
-                    throw new Error(`HTTP ${res.status} ${res.statusText}`);
-                }
-                const data = await res.json();
-                if (Array.isArray(data)) setFlights(data);
-            } catch (err) {
-                console.error("Error fetching flights:", err);
-            }
-        };
-
-        fetchFlights();
-        const interval = setInterval(fetchFlights, 10000); // 10 second poll
-        return () => clearInterval(interval);
-    }, []);
 
     const iconLayer = new IconLayer<Flight>({
         id: 'flight-icons',
@@ -64,17 +40,10 @@ export default function FlightMap() {
         sizeMaxPixels: 80,
         getColor: (d) => d.id === selectedFlight?.id ? [255, 50, 50] : [255, 200, 0],
 
-        // SMOOTH ANIMATION ENGINE
-        transitions: {
-            getPosition: {
-                duration: 10000,     // Matches the 10 second API poll
-                easing: (t: number) => t,    // Linear movement: no speeding up or slowing down
-            },
-            getAngle: {
-                duration: 2000,      // Turns happen faster (2 seconds) so they don't look weird
-                easing: (t: number) => t,
-            }
-        },
+        // NO Deck.gl transitions — our useAnimatedFlights hook handles all
+        // animation via client-side dead reckoning at 30fps.  This means
+        // planes always move in the direction they're facing, never sideways.
+
         updateTriggers: {
             getColor: [selectedFlight?.id],
             sizeScale: [currentZoom]
@@ -84,7 +53,7 @@ export default function FlightMap() {
     return (
         // Added bg-slate-950 here to prevent white flash before dark map tiles load
         <div className="w-screen h-screen relative font-sans bg-slate-950">
-            <Map
+            <MapGL
                 initialViewState={{ longitude: -95.0, latitude: 38.0, zoom: 4 }}
                 style={{ width: '100%', height: '100%' }}
                 mapStyle={`https://api.maptiler.com/maps/darkmatter/style.json?key=${process.env.NEXT_PUBLIC_MAPTILER_KEY || ''}`}
@@ -92,7 +61,7 @@ export default function FlightMap() {
                 onMove={(evt) => setCurrentZoom(evt.viewState.zoom)}
             >
                 <DeckGLOverlay layers={[iconLayer]} />
-            </Map>
+            </MapGL>
 
             {selectedFlight && (
                 <div className="absolute top-6 right-6 w-80 bg-slate-900/90 text-white p-5 rounded-xl border border-slate-700 shadow-2xl backdrop-blur-md z-50 transition-all">
@@ -119,7 +88,7 @@ export default function FlightMap() {
                         </div>
                         <div className="flex justify-between pb-1">
                             <span className="text-slate-400 text-sm">Heading</span>
-                            <span className="font-semibold">{Math.round(selectedFlight.heading)}°</span>
+                            <span className="font-semibold">{((Math.round(selectedFlight.heading) % 360) + 360) % 360}°</span>
                         </div>
                     </div>
                 </div>

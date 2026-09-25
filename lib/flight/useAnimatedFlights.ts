@@ -43,9 +43,15 @@ interface FlightState {
   // Identity + display
   id: string;
   callsign: string;
-  altitude: number;
-  velocity: number; // m/s from API
+  altitude: number;       // feet
+  velocity: number;       // knots
+  verticalRate: number;   // ft/min
+  onGround: boolean;
   aircraftType: AircraftType;
+  aircraftModel: string;
+  registration: string;
+  squawk: string;
+  isEmergency: boolean;
   airline: string;
   country: string;
   countryFlag: string;
@@ -155,9 +161,14 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
           s.targetHeading = f.heading;
           s.velocity = f.velocity;
           s.altitude = f.altitude;
+          s.verticalRate = f.verticalRate;
+          s.onGround = f.onGround;
           s.callsign = f.callsign;
-          // Update metadata in case it changed
           s.aircraftType = f.aircraftType;
+          s.aircraftModel = f.aircraftModel;
+          s.registration = f.registration;
+          s.squawk = f.squawk;
+          s.isEmergency = f.isEmergency;
           s.airline = f.airline;
           s.country = f.country;
           s.countryFlag = f.countryFlag;
@@ -168,7 +179,13 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
             callsign: f.callsign,
             altitude: f.altitude,
             velocity: f.velocity,
+            verticalRate: f.verticalRate,
+            onGround: f.onGround,
             aircraftType: f.aircraftType,
+            aircraftModel: f.aircraftModel,
+            registration: f.registration,
+            squawk: f.squawk,
+            isEmergency: f.isEmergency,
             airline: f.airline,
             country: f.country,
             countryFlag: f.countryFlag,
@@ -233,7 +250,8 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
         //    the last API truth.  This prevents stale cached API positions
         //    from causing a "snap backward" glitch.
         const hdgRad = s.renderHeading * DEG2RAD;
-        const v = s.velocity; // m/s
+        // velocity is in knots → convert to m/s for dead-reckoning
+        const v = s.velocity * 0.514444; // knots → m/s
 
         const dLatDeg = (v * Math.cos(hdgRad) * dt) / M_PER_DEG_LAT;
         const cosLat = Math.cos(s.renderLat * DEG2RAD);
@@ -272,7 +290,13 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
           heading: s.renderHeading,
           altitude: s.altitude,
           velocity: s.velocity,
+          verticalRate: s.verticalRate,
+          onGround: s.onGround,
           aircraftType: s.aircraftType,
+          aircraftModel: s.aircraftModel,
+          registration: s.registration,
+          squawk: s.squawk,
+          isEmergency: s.isEmergency,
           airline: s.airline,
           country: s.country,
           countryFlag: s.countryFlag,

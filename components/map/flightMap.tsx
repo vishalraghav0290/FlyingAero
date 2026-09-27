@@ -12,28 +12,38 @@ import FlightSidebar from "@/components/ui/FlightSidebar";
 
 setWorkerUrl('/lib/maplibre/maplibre-gl-worker.mjs');
 
-// ─── Icon mapping — uses the existing plane.png atlas (1024×1024, mask=true) ──
-// All aircraft types share the same atlas; visual distinction is via color + size.
-const ICON_ATLAS_URL = '/assets/plane.png';
+// ─── Per-type icon atlases (each JPG has white silhouette on black bg)
+// deck.gl mask mode: black (luminance=0) → transparent, white → getColor tint
+const ICON_ATLAS: Record<string, string> = {
+  jet:        '/assets/icon_jet.jpg',
+  widebody:   '/assets/icon_widebody.jpg',
+  helicopter: '/assets/icon_helicopter.jpg',
+  cargo:      '/assets/icon_cargo.jpg',
+  light:      '/assets/icon_jet.jpg',   // small GA uses jet silhouette (smaller)
+};
 
 const ICON_MAPPING = {
   airplane: { x: 0, y: 0, width: 1024, height: 1024, anchorX: 512, anchorY: 512, mask: true },
 };
 
-// Color per aircraft type (RGBA)
+// Color per aircraft type (RGB)
 const TYPE_COLOR_NORMAL: Record<string, [number, number, number]> = {
   jet:        [255, 200,  50],   // gold
   widebody:   [167, 139, 250],   // violet
   helicopter: [ 52, 211, 153],   // emerald
   cargo:      [251, 191,  36],   // amber
+  light:      [148, 163, 184],   // slate (small GA planes)
 };
 
 const TYPE_COLOR_SELECTED: Record<string, [number, number, number]> = {
-  jet:        [255, 100,  60],
+  jet:        [255, 120,  60],
   widebody:   [200, 160, 255],
   helicopter: [100, 240, 180],
   cargo:      [255, 220,  80],
+  light:      [203, 213, 225],
 };
+
+const EMERGENCY_COLOR: [number, number, number] = [255, 50, 50]; // red for 7500/7600/7700
 
 // ─── Deck.gl overlay bridge ────────────────────────────────────────────────────
 
@@ -63,26 +73,29 @@ export default function FlightMap() {
 
   // ─ Build per-type icon layers (4 types, each with its own atlas) ──────────
   const iconLayers = useMemo(() => {
-    const types = ['jet', 'widebody', 'helicopter', 'cargo'] as const;
+    const types = ['jet', 'widebody', 'helicopter', 'cargo', 'light'] as const;
 
     return types.map((type) => {
       const data = flights.filter(f => f.aircraftType === type);
+      const isHelicopter = type === 'helicopter';
+      const isLight = type === 'light';
 
       return new IconLayer<Flight>({
         id: `flight-icons-${type}`,
         data,
         pickable: true,
         onClick: handleFlightClick,
-        iconAtlas: ICON_ATLAS_URL,
+        iconAtlas: ICON_ATLAS[type],
         iconMapping: ICON_MAPPING,
         getIcon: () => 'airplane',
         getPosition: (d) => [d.lon, d.lat],
         getAngle: (d) => -d.heading,
-        getSize: type === 'helicopter' ? 28 : 36,
+        getSize: isHelicopter ? 28 : isLight ? 20 : 36,
         sizeScale: currentZoom / 6,
-        sizeMinPixels: type === 'helicopter' ? 6 : 8,
-        sizeMaxPixels: type === 'helicopter' ? 60 : 80,
+        sizeMinPixels: isHelicopter ? 5 : isLight ? 4 : 8,
+        sizeMaxPixels: isHelicopter ? 55 : isLight ? 40 : 80,
         getColor: (d) => {
+          if (d.isEmergency) return [...EMERGENCY_COLOR, 255] as [number,number,number,number];
           const isSelected = d.id === selectedFlight?.id;
           const base = isSelected ? TYPE_COLOR_SELECTED[type] : TYPE_COLOR_NORMAL[type];
           return [...base, isSelected ? 255 : 220] as [number, number, number, number];

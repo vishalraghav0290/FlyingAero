@@ -273,6 +273,8 @@ function mapAdsbToFlight(ac: any): Flight | null {
   };
 }
 
+// ─── Map raw OpenSky record → our Flight type ───────────────────────────────
+
 function mapOpenSkyToFlight(state: any[]): Flight | null {
   const [hex, callsign, origin_country, time_pos, last_contact, lon, lat, baro_alt, on_ground, velocity, true_track, vertical_rate, sensors, geo_alt, squawk, spi, position_source, category] = state;
   
@@ -347,24 +349,6 @@ async function fetchOpenSkyAPI(): Promise<Flight[]> {
 // ═══════════════════════════════════════════════════════════════════════════════
 // SMART GAP DETECTION & MULTI-SOURCE RECOVERY
 // ═══════════════════════════════════════════════════════════════════════════════
-//
-// HOW IT WORKS:
-//
-// Phase 1 — "Primary sweep" (adsb.lol across all 8 regions)
-//   - Fire all 8 region requests in parallel via Promise.allSettled
-//   - Collect results, note which regions returned < minExpected flights
-//
-// Phase 2 — "Gap recovery" (for regions that look empty/thin)
-//   - For each gapped region, try adsb.fi
-//   - If adsb.fi also fails/returns too few, try airplanes.live
-//   - Merge any new aircraft found into the global result (dedup by ICAO hex)
-//
-// Phase 3 — "Total failure" fallback
-//   - If after all providers we still have 0 flights globally,
-//     return stale cache (up to 60s old) rather than mock data
-//   - Only if stale cache is also empty, use the procedural mock flights
-//
-// ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── Server-Side Cache ───────────────────────────────────────────────────────
 let cachedFlights: Flight[] | null = null;
@@ -420,12 +404,6 @@ async function fetchAllRegions(): Promise<{ flights: Flight[]; stats: string }> 
   // ═══════════════════════════════════════════════════════════════════════════
   // STRATEGY: Round-robin distribute regions across all providers
   // instead of hammering one provider with 18 requests (causes 429s).
-  //
-  //   Provider 0 (adsb.lol)       → regions 0, 3, 6, 9, 12, 15
-  //   Provider 1 (adsb.fi)        → regions 1, 4, 7, 10, 13, 16
-  //   Provider 2 (airplanes.live) → regions 2, 5, 8, 11, 14, 17
-  //
-  // Each provider gets ~6 requests — well within rate limits.
   // ═══════════════════════════════════════════════════════════════════════════
 
   // Build assignments: { provider, region } tuples
@@ -608,29 +586,26 @@ import { NextRequest } from 'next/server';
 
 export async function GET(request: NextRequest) {
   const now = Date.now();
-  const provider = request.nextUrl.searchParams.get('provider');
-  const useAdsb = provider === 'adsb';
 
   // Serve fresh cache
   if (cachedFlights && (now - lastFetchTime) < CACHE_TTL_MS) {
     return NextResponse.json(cachedFlights);
   }
 
-  if (!useAdsb) {
-    try {
-      const flights = await fetchOpenSkyAPI();
-      cachedFlights = flights;
-      lastFetchTime = now;
-      console.log(`[AeroTrack] Fetched ${flights.length} flights from OpenSky API`);
-      return NextResponse.json(flights);
-    } catch (error: any) {
-      if (error.message === 'OPENSKY_RATE_LIMIT') {
-        console.warn('[AeroTrack] OpenSky API rate limit reached');
-        return NextResponse.json({ error: 'RATE_LIMIT' }, { status: 429 });
-      }
-      console.error(`[AeroTrack] OpenSky API Error: ${error.message}`);
-      return NextResponse.json({ error: 'OPENSKY_ERROR', details: error.message }, { status: 500 });
+  // 1. Try OpenSky First
+  try {
+    const flights = await fetchOpenSkyAPI();
+    cachedFlights = flights;
+    lastFetchTime = now;
+    console.log(`[AeroTrack] Fetched ${flights.length} flights from OpenSky API`);
+    return NextResponse.json(flights);
+  } catch (error: any) {
+    if (error.message === 'OPENSKY_RATE_LIMIT') {
+      console.warn('[AeroTrack] OpenSky API rate limit reached, falling back to ADS-B...');
+    } else {
+      console.warn(`[AeroTrack] OpenSky API Error: ${error.message}, falling back to ADS-B...`);
     }
+    // Proceed to fallback
   }
 
   try {

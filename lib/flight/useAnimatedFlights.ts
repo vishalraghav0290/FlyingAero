@@ -31,9 +31,10 @@ const POLL_MS = 10_000;
 
 /**
  * Trail ring-buffer: max points stored per flight.
- * At 1 point per second → ~3 min of visible history.
+ * At 1 point per second → ~5 min of visible history.
+ * This is the trail from "takeoff" (when the flight was first detected).
  */
-const TRAIL_MAX_POINTS = 180;
+const TRAIL_MAX_POINTS = 300;
 
 /** Append a trail point every this many frames (at 60fps = ~4pts/sec for quick visibility) */
 const TRAIL_FRAME_INTERVAL = 15;
@@ -77,6 +78,8 @@ interface FlightState {
   renderHeading: number; // also continuous — only normalised for display
 
   // Trail ring-buffer: list of [lon, lat] points (oldest first)
+  // This is built continuously for ALL flights from when they first appear,
+  // not just when selected. This simulates a trail "from takeoff."
   trail: [number, number][];
   trailFrameCounter: number;
 
@@ -89,8 +92,6 @@ interface FlightState {
 export interface AnimatedFlightsResult {
   flights: Flight[];
   trailMap: Map<string, [number, number][]>;
-  isRateLimited: boolean;
-  switchProvider: () => void;
 }
 
 /**
@@ -111,7 +112,10 @@ export interface AnimatedFlightsResult {
  *
  *   4. Smoothly rotate renderHeading toward targetHeading.
  *
- *   5. Append [lon, lat] to trail ring-buffer every TRAIL_FRAME_INTERVAL frames.
+ *   5. Append [lon, lat] to trail ring-buffer every TRAIL_FRAME_INTERVAL
+ *      frames FOR ALL FLIGHTS — not just the selected one. This means
+ *      every flight has a trail building since it was first detected,
+ *      simulating a trail "from takeoff."
  *
  *   6. Flights are kept alive for MAX_MISSED_POLLS cycles before pruning,
  *      so they don't vanish when a different provider is queried.
@@ -119,13 +123,6 @@ export interface AnimatedFlightsResult {
 export function useAnimatedFlights(): AnimatedFlightsResult {
   const [displayFlights, setDisplayFlights] = useState<Flight[]>([]);
   const [trailMap, setTrailMap] = useState<Map<string, [number, number][]>>(new Map());
-  const [provider, setProvider] = useState<'opensky' | 'adsb'>('opensky');
-  const [isRateLimited, setIsRateLimited] = useState(false);
-
-  const switchProvider = useCallback(() => {
-    setProvider('adsb');
-    setIsRateLimited(false);
-  }, []);
 
   // Mutable refs that persist across renders without triggering them
   const statesRef = useRef(new Map() as Map<string, FlightState>);
@@ -137,11 +134,7 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
 
   const fetchAndMerge = useCallback(async () => {
     try {
-      const res = await fetch(`/api/flight?provider=${provider}`);
-      if (res.status === 429) {
-        setIsRateLimited(true);
-        return;
-      }
+      const res = await fetch('/api/flight');
       if (!res.ok) return;
       const raw: unknown = await res.json();
       if (!Array.isArray(raw)) return;
@@ -235,7 +228,7 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
     } catch (e) {
       console.error('Flight fetch error:', e);
     }
-  }, [provider]);
+  }, []);
 
   // ── Start API polling ───────────────────────────────────────────────────
 
@@ -297,6 +290,9 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
         s.renderHeading += (s.targetHeading - s.renderHeading) * hdgAlpha;
 
         // ─ 4. Trail: append point every TRAIL_FRAME_INTERVAL frames ─
+        // Trail is built for ALL flights continuously, not just selected.
+        // This gives every flight a trail from when it was first detected
+        // (simulating a "from takeoff" trail).
         s.trailFrameCounter++;
         if (s.trailFrameCounter >= TRAIL_FRAME_INTERVAL) {
           s.trailFrameCounter = 0;
@@ -338,5 +334,5 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
     return () => cancelAnimationFrame(rafIdRef.current);
   }, []);
 
-  return { flights: displayFlights, trailMap, isRateLimited, switchProvider };
+  return { flights: displayFlights, trailMap };
 }

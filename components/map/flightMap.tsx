@@ -15,11 +15,11 @@ setWorkerUrl('/lib/maplibre/maplibre-gl-worker.mjs');
 // ─── Per-type icon atlases (each JPG has white silhouette on black bg)
 // deck.gl mask mode: black (luminance=0) → transparent, white → getColor tint
 const ICON_ATLAS: Record<string, string> = {
-  jet:        '/assets/icon_jet.jpg',
-  widebody:   '/assets/icon_widebody.jpg',
-  helicopter: '/assets/icon_helicopter.jpg',
-  cargo:      '/assets/icon_cargo.jpg',
-  light:      '/assets/icon_jet.jpg',   // small GA uses jet silhouette (smaller)
+  jet: '/assets/icon_jet1.png',
+  widebody: '/assets/icon_widebody1.png',
+  helicopter: '/assets/icon_helicopter1.png',
+  cargo: '/assets/icon_cargo1.png',
+  light: '/assets/icon_jet1.png',   // small GA uses jet silhouette (smaller)
 };
 
 const ICON_MAPPING = {
@@ -28,19 +28,19 @@ const ICON_MAPPING = {
 
 // Color per aircraft type (RGB)
 const TYPE_COLOR_NORMAL: Record<string, [number, number, number]> = {
-  jet:        [255, 200,  50],   // gold
-  widebody:   [167, 139, 250],   // violet
-  helicopter: [ 52, 211, 153],   // emerald
-  cargo:      [251, 191,  36],   // amber
-  light:      [148, 163, 184],   // slate (small GA planes)
+  jet: [255, 200, 50],   // gold
+  widebody: [167, 139, 250],   // violet
+  helicopter: [52, 211, 153],   // emerald
+  cargo: [251, 191, 36],   // amber
+  light: [148, 163, 184],   // slate (small GA planes)
 };
 
 const TYPE_COLOR_SELECTED: Record<string, [number, number, number]> = {
-  jet:        [255, 120,  60],
-  widebody:   [200, 160, 255],
+  jet: [255, 120, 60],
+  widebody: [200, 160, 255],
   helicopter: [100, 240, 180],
-  cargo:      [255, 220,  80],
-  light:      [203, 213, 225],
+  cargo: [255, 220, 80],
+  light: [203, 213, 225],
 };
 
 const EMERGENCY_COLOR: [number, number, number] = [255, 50, 50]; // red for 7500/7600/7700
@@ -95,7 +95,7 @@ export default function FlightMap() {
         sizeMinPixels: isHelicopter ? 5 : isLight ? 4 : 8,
         sizeMaxPixels: isHelicopter ? 55 : isLight ? 40 : 80,
         getColor: (d) => {
-          if (d.isEmergency) return [...EMERGENCY_COLOR, 255] as [number,number,number,number];
+          if (d.isEmergency) return [...EMERGENCY_COLOR, 255] as [number, number, number, number];
           const isSelected = d.id === selectedFlight?.id;
           const base = isSelected ? TYPE_COLOR_SELECTED[type] : TYPE_COLOR_NORMAL[type];
           return [...base, isSelected ? 255 : 220] as [number, number, number, number];

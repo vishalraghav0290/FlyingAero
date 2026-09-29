@@ -17,8 +17,8 @@ function formatSpeed(kts: number): string {
 
 function formatHeading(raw: number): string {
   const h = ((Math.round(raw) % 360) + 360) % 360;
-  const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE',
-                'S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+    'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
   return `${h}°  ${dirs[Math.round(h / 22.5) % 16]}`;
 }
 
@@ -37,62 +37,62 @@ function formatVerticalRate(fpm: number, onGround: boolean): { label: string; ic
 
 // Known ICAO type code → readable model
 const MODEL_NAMES: Record<string, string> = {
-  B737:'Boeing 737', B738:'Boeing 737-800', B739:'Boeing 737-900',
-  B38M:'Boeing 737 MAX 8', B39M:'Boeing 737 MAX 9',
-  B752:'Boeing 757-200', B763:'Boeing 767-300', B764:'Boeing 767-400',
-  B772:'Boeing 777-200', B773:'Boeing 777-300', B77W:'Boeing 777-300ER',
-  B77F:'Boeing 777F',
-  B788:'Boeing 787-8', B789:'Boeing 787-9', B78X:'Boeing 787-10',
-  B742:'Boeing 747-200', B744:'Boeing 747-400', B748:'Boeing 747-8',
-  A318:'Airbus A318', A319:'Airbus A319', A320:'Airbus A320',
-  A321:'Airbus A321', A20N:'Airbus A320neo', A21N:'Airbus A321neo',
-  A332:'Airbus A330-200', A333:'Airbus A330-300', A339:'Airbus A330-900',
-  A359:'Airbus A350-900', A35K:'Airbus A350-1000',
-  A380:'Airbus A380', A388:'Airbus A380-800',
-  E170:'Embraer E170', E175:'Embraer E175', E190:'Embraer E190', E195:'Embraer E195',
-  E75S:'Embraer E175-S', E55P:'Embraer Phenom 300',
-  CRJ7:'Bombardier CRJ-700', CRJ9:'Bombardier CRJ-900',
-  R22:'Robinson R22', R44:'Robinson R44', R66:'Robinson R66',
-  EC35:'Airbus H135', EC45:'Airbus H145', AS50:'Airbus AS350',
-  S76:'Sikorsky S-76', B06:'Bell 206', B07:'Bell 407',
-  H60:'Sikorsky Black Hawk', A109:'AgustaWestland AW109',
-  MD11:'McDonnell Douglas MD-11',
-  C172:'Cessna 172', C182:'Cessna 182', C208:'Cessna Grand Caravan',
-  C68A:'Cessna Citation Latitude', P28A:'Piper PA-28 Arrow',
-  SR22:'Cirrus SR22', BE23:'Beechcraft Musketeer', BE20:'Beechcraft King Air 200',
-  C185:'Cessna 185 Skywagon',
+  B737: 'Boeing 737', B738: 'Boeing 737-800', B739: 'Boeing 737-900',
+  B38M: 'Boeing 737 MAX 8', B39M: 'Boeing 737 MAX 9',
+  B752: 'Boeing 757-200', B763: 'Boeing 767-300', B764: 'Boeing 767-400',
+  B772: 'Boeing 777-200', B773: 'Boeing 777-300', B77W: 'Boeing 777-300ER',
+  B77F: 'Boeing 777F',
+  B788: 'Boeing 787-8', B789: 'Boeing 787-9', B78X: 'Boeing 787-10',
+  B742: 'Boeing 747-200', B744: 'Boeing 747-400', B748: 'Boeing 747-8',
+  A318: 'Airbus A318', A319: 'Airbus A319', A320: 'Airbus A320',
+  A321: 'Airbus A321', A20N: 'Airbus A320neo', A21N: 'Airbus A321neo',
+  A332: 'Airbus A330-200', A333: 'Airbus A330-300', A339: 'Airbus A330-900',
+  A359: 'Airbus A350-900', A35K: 'Airbus A350-1000',
+  A380: 'Airbus A380', A388: 'Airbus A380-800',
+  E170: 'Embraer E170', E175: 'Embraer E175', E190: 'Embraer E190', E195: 'Embraer E195',
+  E75S: 'Embraer E175-S', E55P: 'Embraer Phenom 300',
+  CRJ7: 'Bombardier CRJ-700', CRJ9: 'Bombardier CRJ-900',
+  R22: 'Robinson R22', R44: 'Robinson R44', R66: 'Robinson R66',
+  EC35: 'Airbus H135', EC45: 'Airbus H145', AS50: 'Airbus AS350',
+  S76: 'Sikorsky S-76', B06: 'Bell 206', B07: 'Bell 407',
+  H60: 'Sikorsky Black Hawk', A109: 'AgustaWestland AW109',
+  MD11: 'McDonnell Douglas MD-11',
+  C172: 'Cessna 172', C182: 'Cessna 182', C208: 'Cessna Grand Caravan',
+  C68A: 'Cessna Citation Latitude', P28A: 'Piper PA-28 Arrow',
+  SR22: 'Cirrus SR22', BE23: 'Beechcraft Musketeer', BE20: 'Beechcraft King Air 200',
+  C185: 'Cessna 185 Skywagon',
 };
 
 const AIRCRAFT_IMAGES: Record<string, string> = {
-  jet:        '/assets/icon_jet1.png',
-  widebody:   '/assets/icon_widebody1.png',
+  jet: '/assets/icon_jet1.png',
+  widebody: '/assets/icon_widebody1.png',
   helicopter: '/assets/icon_helicopter1.png',
-  cargo:      '/assets/icon_cargo1.png',
-  light:      '/assets/icon_jet1.png',
+  cargo: '/assets/icon_cargo1.png',
+  light: '/assets/icon_jet1.png',
 };
 
 const TYPE_LABELS: Record<string, string> = {
-  jet:        'Narrow-Body Jet',
-  widebody:   'Wide-Body Airliner',
+  jet: 'Narrow-Body Jet',
+  widebody: 'Wide-Body Airliner',
   helicopter: 'Rotorcraft',
-  cargo:      'Cargo / Freighter',
-  light:      'Light Aircraft',
+  cargo: 'Cargo / Freighter',
+  light: 'Light Aircraft',
 };
 
 const TYPE_ACCENT: Record<string, string> = {
-  jet:        '#fbbf24',
-  widebody:   '#a78bfa',
+  jet: '#fbbf24',
+  widebody: '#a78bfa',
   helicopter: '#34d399',
-  cargo:      '#f59e0b',
-  light:      '#94a3b8',
+  cargo: '#f59e0b',
+  light: '#94a3b8',
 };
 
 const TYPE_BG: Record<string, string> = {
-  jet:        'rgba(251,191,36,0.10)',
-  widebody:   'rgba(167,139,250,0.10)',
+  jet: 'rgba(251,191,36,0.10)',
+  widebody: 'rgba(167,139,250,0.10)',
   helicopter: 'rgba(52,211,153,0.10)',
-  cargo:      'rgba(245,158,11,0.10)',
-  light:      'rgba(148,163,184,0.08)',
+  cargo: 'rgba(245,158,11,0.10)',
+  light: 'rgba(148,163,184,0.08)',
 };
 
 const SQUAWK_LABELS: Record<string, { label: string; color: string }> = {
@@ -157,8 +157,8 @@ export default function FlightSidebar({ flight, trailLength, onClose }: Props) {
   const modelName = flight?.aircraftModel ? (MODEL_NAMES[flight.aircraftModel] ?? flight.aircraftModel) : null;
   const trailSecs = Math.round(trailLength * (15 / 60));
   const trailLabel = trailSecs > 0
-    ? `${Math.floor(trailSecs / 60)}m ${(trailSecs % 60).toString().padStart(2,'0')}s of track`
-    : 'Tracking started…';
+    ? `${Math.floor(trailSecs / 60)}m ${(trailSecs % 60).toString().padStart(2, '0')}s tracked since detection`
+    : 'Building trail from detection…';
   const squawkInfo = flight?.squawk ? SQUAWK_LABELS[flight.squawk] : null;
 
   return (
@@ -279,8 +279,10 @@ export default function FlightSidebar({ flight, trailLength, onClose }: Props) {
                   border: '1px solid rgba(255,255,255,0.07)',
                 }}>
                   <img src={airlineImage} alt={flight.airline}
-                    style={{ maxHeight: '32px', maxWidth: '100%', objectFit: 'contain',
-                      filter: 'brightness(1.1)' }} />
+                    style={{
+                      maxHeight: '32px', maxWidth: '100%', objectFit: 'contain',
+                      filter: 'brightness(1.1)'
+                    }} />
                 </div>
               ) : (
                 <div style={{

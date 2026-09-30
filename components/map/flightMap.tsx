@@ -12,27 +12,27 @@ import FlightSidebar from "@/components/ui/FlightSidebar";
 
 setWorkerUrl('/lib/maplibre/maplibre-gl-worker.mjs');
 
-// ─── Per-type icon atlases (each PNG has white silhouette on black bg)
-// deck.gl mask mode: black (luminance=0) → transparent, white → getColor tint
+// ─── Per-type SVG icon atlases (distinct silhouettes)
+// Each SVG is white on black with mask mode: black → transparent, white → getColor tint
 const ICON_ATLAS: Record<string, string> = {
   jet: '/assets/icon_jet1.png',
   widebody: '/assets/icon_widebody1.png',
-  helicopter: '/assets/icon_helicopter1.png',
+  helicopter: '/assets/icon_helicopter.png',
   cargo: '/assets/icon_cargo1.png',
-  light: '/assets/icon_jet1.png',   // small GA uses jet silhouette
+  light: '/assets/icon_light1.png',
 };
 
 const ICON_MAPPING = {
-  airplane: { x: 0, y: 0, width: 1024, height: 1024, anchorX: 512, anchorY: 512, mask: true },
+  airplane: { x: 0, y: 0, width: 1024, height: 1024, anchorX: 256, anchorY: 256, mask: true },
 };
 
 // Color per aircraft type (RGB)
 const TYPE_COLOR_NORMAL: Record<string, [number, number, number]> = {
   jet: [255, 200, 50],       // gold
-  widebody: [167, 139, 250], // violet
-  helicopter: [52, 211, 153],// emerald
-  cargo: [251, 191, 36],     // amber
-  light: [148, 163, 184],    // slate
+  widebody: [167, 139, 250],      // violet
+  helicopter: [52, 211, 153],       // emerald
+  cargo: [251, 191, 36],       // amber
+  light: [148, 163, 184],      // slate
 };
 
 const TYPE_COLOR_SELECTED: Record<string, [number, number, number]> = {
@@ -56,7 +56,7 @@ function DeckGLOverlay(props: { layers: any[]; interleaved?: boolean }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function FlightMap() {
-  const { flights, trailMap, isRateLimited, switchProvider } = useAnimatedFlights();
+  const { flights, trailMap } = useAnimatedFlights();
 
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
   const [currentZoom, setCurrentZoom] = useState<number>(4);
@@ -66,8 +66,8 @@ export default function FlightMap() {
 
   // OpenFreeMap: free, no API key, no domain restrictions — works everywhere
   const MAP_STYLES: Record<string, string> = {
-    dark:      'https://tiles.openfreemap.org/styles/dark',
-    light:     'https://tiles.openfreemap.org/styles/bright',
+    dark: 'https://tiles.openfreemap.org/styles/dark',
+    light: 'https://tiles.openfreemap.org/styles/bright',
     satellite: 'https://tiles.openfreemap.org/styles/liberty',
   };
 
@@ -155,7 +155,9 @@ export default function FlightMap() {
     });
   }, [visibleFlights, selectedFlight, currentZoom, isLight]);
 
-  // ─ FlightRadar24-style trail (gradient fade from old → current) ───────────
+  // ─ Trail layers for the selected flight ────────────────────────────────────
+  // Trails build from when the flight was first detected (simulating "from takeoff")
+  // but only render the full trail visualization when a flight is selected
   const fadingTrailLayers = useMemo(() => {
     if (!selectedFlight) return [];
 
@@ -241,7 +243,7 @@ export default function FlightMap() {
 
   const allLayers = [...iconLayers, ...fadingTrailLayers];
 
-  // Trail age display
+  // Trail age display — now shows the full accumulated trail since detection
   const trailAge = useMemo(() => {
     if (!selectedFlight) return 0;
     const trail = trailMap.get(selectedFlight.id);
@@ -258,7 +260,7 @@ export default function FlightMap() {
 
   return (
     <div className="w-screen h-screen relative font-sans bg-slate-950">
-      <div style={{ width: '100%', height: '100%', filter: isRateLimited ? 'blur(8px)' : 'none', transition: 'filter 0.3s ease' }}>
+      <div style={{ width: '100%', height: '100%' }}>
         <MapGL
           initialViewState={{ longitude: -95.0, latitude: 38.0, zoom: 4 }}
           style={{ width: '100%', height: '100%' }}
@@ -269,43 +271,6 @@ export default function FlightMap() {
           <DeckGLOverlay layers={allLayers} />
         </MapGL>
       </div>
-
-      {/* ── Rate Limit Modal ───────────────────────────────────────── */}
-      {isRateLimited && (
-        <div style={{
-          position: 'absolute', inset: 0, zIndex: 100,
-          background: 'rgba(0,0,0,0.4)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center'
-        }}>
-          <div style={{
-            background: 'rgba(15,20,30,0.95)',
-            border: '1px solid rgba(255,255,255,0.15)',
-            padding: '30px', borderRadius: '16px',
-            color: 'white', textAlign: 'center',
-            maxWidth: '400px', boxShadow: '0 20px 50px rgba(0,0,0,0.6)',
-            animation: 'dropIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
-          }}>
-            <h2 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '12px' }}>OpenSky API Limit Reached</h2>
-            <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)', marginBottom: '24px', lineHeight: 1.5 }}>
-              The OpenSky Network API has strict rate limits which have just been exceeded. Would you like to switch to robust, community-driven ADS-B providers to continue tracking live flights?
-            </p>
-            <button
-              onClick={switchProvider}
-              style={{
-                background: '#3b82f6', color: 'white', border: 'none',
-                padding: '12px 24px', borderRadius: '8px', fontSize: '14px',
-                fontWeight: 600, cursor: 'pointer', transition: 'background 0.2s, transform 0.1s'
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = '#2563eb'}
-              onMouseLeave={e => e.currentTarget.style.background = '#3b82f6'}
-              onMouseDown={e => e.currentTarget.style.transform = 'scale(0.97)'}
-              onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
-            >
-              Switch to ADS-B Providers
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* ── Flight Detail Sidebar ──────────────────────────────────── */}
       <FlightSidebar
@@ -536,7 +501,7 @@ export default function FlightMap() {
           </svg>
           <span>
             <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Flight trail</strong>
-            {' '}· {trailAge > 0 ? `${Math.floor(trailAge * 15 / 60)}m ${((trailAge * 15) % 60).toString().padStart(2, '0')}s recorded` : 'starting…'}
+            {' '}· {trailAge > 0 ? `${Math.floor(trailAge * 15 / 60)}m ${((trailAge * 15) % 60).toString().padStart(2, '0')}s tracked since detection` : 'starting…'}
           </span>
         </div>
       )}

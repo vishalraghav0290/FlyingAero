@@ -13,6 +13,8 @@ const AIRLINE_DB: Record<string, { airline: string; country: string; flag: strin
   SKW: { airline: 'SkyWest Airlines',     country: 'United States', flag: '🇺🇸' },
   ASA: { airline: 'Alaska Airlines',      country: 'United States', flag: '🇺🇸' },
   EJA: { airline: 'NetJets',              country: 'United States', flag: '🇺🇸' },
+  NKS: { airline: 'Spirit Airlines',      country: 'United States', flag: '🇺🇸' },
+  FFT: { airline: 'Frontier Airlines',    country: 'United States', flag: '🇺🇸' },
   BAW: { airline: 'British Airways',      country: 'United Kingdom', flag: '🇬🇧' },
   EZY: { airline: 'easyJet',             country: 'United Kingdom', flag: '🇬🇧' },
   VIR: { airline: 'Virgin Atlantic',      country: 'United Kingdom', flag: '🇬🇧' },
@@ -59,6 +61,11 @@ const AIRLINE_DB: Record<string, { airline: string; country: string; flag: strin
   SAS: { airline: 'Scandinavian Airlines',country: 'Sweden',        flag: '🇸🇪' },
   FIN: { airline: 'Finnair',              country: 'Finland',       flag: '🇫🇮' },
   MSR: { airline: 'EgyptAir',             country: 'Egypt',         flag: '🇪🇬' },
+  ACA: { airline: 'Air Canada',           country: 'Canada',        flag: '🇨🇦' },
+  WJA: { airline: 'WestJet',              country: 'Canada',        flag: '🇨🇦' },
+  TAP: { airline: 'TAP Air Portugal',     country: 'Portugal',      flag: '🇵🇹' },
+  SWR: { airline: 'Swiss',                country: 'Switzerland',   flag: '🇨🇭' },
+  AUA: { airline: 'Austrian Airlines',    country: 'Austria',       flag: '🇦🇹' },
 };
 
 // ─── ICAO Type → Readable Model Name ────────────────────────────────────────
@@ -128,35 +135,109 @@ function lookupAirline(callsign: string) {
 
 const EMERGENCY_SQUAWKS = new Set(['7500', '7600', '7700']);
 
-// ─── adsb.lol Multi-Region Fetch ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// MULTI-SOURCE ADS-B DATA PROVIDERS
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// All three providers use identical response format (ADSBx v2 compatible):
+//   { ac: [ { hex, lat, lon, track, alt_baro, gs, ... }, ... ] }
+//
+// This lets us use one parser (mapAdsbToFlight) for all sources.
+//
+// Priority order:
+//   1. adsb.lol     — primary, best global coverage
+//   2. adsb.fi      — community-driven, excellent European/global coverage
+//   3. airplanes.live — good fallback, strong North American coverage
+//
+// ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * We query 8 strategic world-center coordinates at 500nm radius.
- * This covers Europe, US, East Asia, South Asia, Middle East, SE Asia, Central Asia, and Australia.
- * Promise.allSettled means one dead region won't block others.
- */
-const REGIONS = [
-  { lat: 39.0, lon: -95.0 },   // US Central
-  { lat: 33.0, lon: -80.0 },   // US East Coast
-  { lat: 37.0, lon: -122.0 },  // US West Coast
-  { lat: 50.0, lon:  10.0 },   // Europe Central
-  { lat: 26.0, lon:  45.0 },   // Middle East
-  { lat: 35.0, lon: 115.0 },   // China / East Asia
-  { lat: 20.0, lon:  80.0 },   // India / South Asia
-  { lat: -25.0, lon: 135.0 },  // Australia
-];
-const ADSB_DIST = 500; // nautical miles radius per query
-
-async function fetchAdsbRegion(lat: number, lon: number): Promise<any[]> {
-  const url = `https://api.adsb.lol/v2/lat/${lat}/lon/${lon}/dist/${ADSB_DIST}`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'AeroTrack/1.0 (flight-tracker-project)' },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`adsb.lol ${res.status}`);
-  const json = await res.json();
-  return Array.isArray(json.ac) ? json.ac : [];
+interface DataProvider {
+  name: string;
+  buildUrl: (lat: number, lon: number, dist: number) => string;
+  headers: Record<string, string>;
+  timeoutMs: number;
 }
+
+const PROVIDERS: DataProvider[] = [
+  {
+    name: 'adsb.lol',
+    buildUrl: (lat, lon, dist) => `https://api.adsb.lol/v2/lat/${lat}/lon/${lon}/dist/${dist}`,
+    headers: { 'User-Agent': 'AeroTrack/1.0 (flight-tracker-project)' },
+    timeoutMs: 8000,
+  },
+  {
+    name: 'adsb.fi',
+    buildUrl: (lat, lon, dist) => `https://opendata.adsb.fi/api/v2/lat/${lat}/lon/${lon}/dist/${dist}`,
+    headers: { 'User-Agent': 'AeroTrack/1.0 (flight-tracker-project)' },
+    timeoutMs: 8000,
+  },
+  {
+    name: 'airplanes.live',
+    buildUrl: (lat, lon, dist) => `https://api.airplanes.live/v2/point/${lat}/${lon}/${dist}`,
+    headers: { 'User-Agent': 'AeroTrack/1.0 (flight-tracker-project)' },
+    timeoutMs: 10000,
+  },
+];
+
+// ─── Query Regions ───────────────────────────────────────────────────────────
+// 8 strategic world centers. Each should return at least MIN_EXPECTED flights
+// during any normal hour. If not → the region is considered "gapped."
+
+interface Region {
+  name: string;
+  lat: number;
+  lon: number;
+  minExpected: number; // below this = suspicious gap
+}
+
+const REGIONS: Region[] = [
+  // ── Americas ──────────────────────────────────────────────────
+  { name: 'US Central',   lat: 39.0,  lon: -95.0,  minExpected: 30 },
+  { name: 'US East',      lat: 33.0,  lon: -80.0,  minExpected: 25 },
+  { name: 'US West',      lat: 37.0,  lon: -122.0, minExpected: 20 },
+  // ── Europe ────────────────────────────────────────────────────
+  { name: 'Europe',       lat: 50.0,  lon:  10.0,  minExpected: 40 },
+  // ── Middle East ───────────────────────────────────────────────
+  { name: 'Middle East',  lat: 26.0,  lon:  45.0,  minExpected: 10 },
+  { name: 'Gulf/UAE',     lat: 25.2,  lon:  55.3,  minExpected: 8  },
+  // ── India / South Asia (dense coverage) ───────────────────────
+  { name: 'North India',  lat: 28.6,  lon:  77.1,  minExpected: 8  },  // Delhi/NCR hub
+  { name: 'West India',   lat: 19.1,  lon:  72.9,  minExpected: 8  },  // Mumbai hub
+  { name: 'South India',  lat: 13.0,  lon:  80.2,  minExpected: 6  },  // Chennai/Bangalore
+  { name: 'East India',   lat: 22.6,  lon:  88.4,  minExpected: 4  },  // Kolkata
+  { name: 'Central Asia',  lat: 33.0, lon:  65.0,  minExpected: 3  },  // Afghanistan/Pakistan corridor
+  // ── East Asia ─────────────────────────────────────────────────
+  { name: 'China East',   lat: 31.2,  lon: 121.5,  minExpected: 15 },  // Shanghai hub
+  { name: 'China North',  lat: 39.9,  lon: 116.4,  minExpected: 12 },  // Beijing hub
+  { name: 'Japan/Korea',  lat: 35.7,  lon: 139.7,  minExpected: 10 },  // Tokyo hub
+  // ── Southeast Asia ────────────────────────────────────────────
+  { name: 'SE Asia North', lat: 13.7, lon: 100.5,  minExpected: 8  },  // Bangkok hub
+  { name: 'SE Asia South', lat: 1.35, lon: 103.8,  minExpected: 10 },  // Singapore/KL hub
+  { name: 'Indonesia',     lat: -6.2, lon: 106.8,  minExpected: 5  },  // Jakarta
+  // ── Oceania ───────────────────────────────────────────────────
+  { name: 'Australia',    lat: -25.0, lon:  135.0, minExpected: 5  },
+];
+
+const QUERY_DIST = 500; // nautical miles radius per query
+
+// ─── Fetch from a single provider + region ───────────────────────────────────
+
+async function fetchRegionFromProvider(
+  provider: DataProvider,
+  region: Region,
+): Promise<{ regionName: string; providerName: string; aircraft: any[] }> {
+  const url = provider.buildUrl(region.lat, region.lon, QUERY_DIST);
+  const res = await fetch(url, {
+    headers: provider.headers,
+    signal: AbortSignal.timeout(provider.timeoutMs),
+  });
+  if (!res.ok) throw new Error(`${provider.name} ${res.status}`);
+  const json = await res.json();
+  const ac = Array.isArray(json.ac) ? json.ac : [];
+  return { regionName: region.name, providerName: provider.name, aircraft: ac };
+}
+
+// ─── Map raw ADS-B record → our Flight type ─────────────────────────────────
 
 function mapAdsbToFlight(ac: any): Flight | null {
   // Skip if missing position or heading
@@ -193,12 +274,197 @@ function mapAdsbToFlight(ac: any): Flight | null {
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// SMART GAP DETECTION & MULTI-SOURCE RECOVERY
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// HOW IT WORKS:
+//
+// Phase 1 — "Primary sweep" (adsb.lol across all 8 regions)
+//   - Fire all 8 region requests in parallel via Promise.allSettled
+//   - Collect results, note which regions returned < minExpected flights
+//
+// Phase 2 — "Gap recovery" (for regions that look empty/thin)
+//   - For each gapped region, try adsb.fi
+//   - If adsb.fi also fails/returns too few, try airplanes.live
+//   - Merge any new aircraft found into the global result (dedup by ICAO hex)
+//
+// Phase 3 — "Total failure" fallback
+//   - If after all providers we still have 0 flights globally,
+//     return stale cache (up to 60s old) rather than mock data
+//   - Only if stale cache is also empty, use the procedural mock flights
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+
 // ─── Server-Side Cache ───────────────────────────────────────────────────────
 let cachedFlights: Flight[] | null = null;
 let lastFetchTime = 0;
 const CACHE_TTL_MS = 12_000;
+const STALE_CACHE_TTL_MS = 60_000; // serve stale cache up to 60s before falling back to mock
 
-// ─── Mock Fallback ───────────────────────────────────────────────────────────
+// Track per-region health for smarter logging
+const regionHealth = new Map<string, { lastCount: number; lastProvider: string; lastTime: number }>();
+
+// ─── Position Continuity Cache ───────────────────────────────────────────────
+// Stores each flight's last-known position so we can reject impossible jumps.
+// A commercial jet at 600kts covers ~18km in 12s. We allow 150km to be generous
+// (accounts for inaccurate positions, heading changes, etc.) but catches the
+// ~500km+ jumps caused by provider-hopping or stale data.
+const previousPositions = new Map<string, { lat: number; lon: number; time: number }>();
+const MAX_JUMP_KM = 150; // reject position updates farther than this
+
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Earth radius km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Try to add a flight, rejecting impossible position jumps */
+function addFlightIfValid(seen: Map<string, Flight>, ac: any): boolean {
+  if (seen.has(ac.hex)) return false;
+  const flight = mapAdsbToFlight(ac);
+  if (!flight) return false;
+
+  // Check position continuity against previous cycle
+  const prev = previousPositions.get(flight.id);
+  if (prev) {
+    const dist = haversineKm(prev.lat, prev.lon, flight.lat, flight.lon);
+    if (dist > MAX_JUMP_KM) {
+      // Impossible jump — use old position, update other fields
+      flight.lat = prev.lat;
+      flight.lon = prev.lon;
+    }
+  }
+
+  seen.set(ac.hex, flight);
+  return true;
+}
+
+async function fetchAllRegions(): Promise<{ flights: Flight[]; stats: string }> {
+  const seen = new Map<string, Flight>();
+  const logParts: string[] = [];
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STRATEGY: Round-robin distribute regions across all providers
+  // instead of hammering one provider with 18 requests (causes 429s).
+  //
+  //   Provider 0 (adsb.lol)       → regions 0, 3, 6, 9, 12, 15
+  //   Provider 1 (adsb.fi)        → regions 1, 4, 7, 10, 13, 16
+  //   Provider 2 (airplanes.live) → regions 2, 5, 8, 11, 14, 17
+  //
+  // Each provider gets ~6 requests — well within rate limits.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Build assignments: { provider, region } tuples
+  const assignments = REGIONS.map((region, i) => ({
+    region,
+    provider: PROVIDERS[i % PROVIDERS.length],
+  }));
+
+  // ── Phase 1: Fetch all regions from their assigned provider ──────────────
+  const results = await Promise.allSettled(
+    assignments.map(a => fetchRegionFromProvider(a.provider, a.region))
+  );
+
+  const regionResults = new Map<string, { count: number; provider: string }>();
+  const gappedRegions: { region: Region; triedProviders: Set<string> }[] = [];
+
+  for (let i = 0; i < REGIONS.length; i++) {
+    const region = REGIONS[i];
+    const provider = assignments[i].provider;
+    const result = results[i];
+
+    if (result.status === 'fulfilled') {
+      const { aircraft } = result.value;
+      let regionCount = 0;
+      for (const ac of aircraft) {
+        if (addFlightIfValid(seen, ac)) regionCount++;
+      }
+
+      regionHealth.set(region.name, {
+        lastCount: regionCount,
+        lastProvider: provider.name,
+        lastTime: Date.now(),
+      });
+      regionResults.set(region.name, { count: regionCount, provider: provider.name });
+
+      if (regionCount < region.minExpected) {
+        gappedRegions.push({ region, triedProviders: new Set([provider.name]) });
+        logParts.push(`⚠ ${region.name}: ${regionCount}/${region.minExpected} via ${provider.name} (gap)`);
+      } else {
+        logParts.push(`✓ ${region.name}: ${regionCount} via ${provider.name}`);
+      }
+    } else {
+      gappedRegions.push({ region, triedProviders: new Set([provider.name]) });
+      logParts.push(`✗ ${region.name}: ${provider.name} ${(result.reason as Error)?.message ?? 'FAIL'}`);
+    }
+  }
+
+  // ── Phase 2: Gap recovery — try untried providers for gapped regions ─────
+  if (gappedRegions.length > 0) {
+    for (const fallbackProvider of PROVIDERS) {
+      const retryable = gappedRegions.filter(g => {
+        if (g.triedProviders.has(fallbackProvider.name)) return false;
+        const health = regionHealth.get(g.region.name);
+        return !health || health.lastCount < g.region.minExpected;
+      });
+
+      if (retryable.length === 0) continue;
+
+      logParts.push(`  → Retry ${fallbackProvider.name}: ${retryable.length} region(s)`);
+
+      const retryResults = await Promise.allSettled(
+        retryable.map(g => fetchRegionFromProvider(fallbackProvider, g.region))
+      );
+
+      for (let i = 0; i < retryable.length; i++) {
+        const { region } = retryable[i];
+        retryable[i].triedProviders.add(fallbackProvider.name);
+        const result = retryResults[i];
+
+        if (result.status === 'fulfilled') {
+          const { aircraft } = result.value;
+          let newCount = 0;
+          for (const ac of aircraft) {
+            if (addFlightIfValid(seen, ac)) newCount++;
+          }
+
+          if (newCount > 0) {
+            const prev = regionHealth.get(region.name);
+            const total = (prev?.lastCount ?? 0) + newCount;
+            regionHealth.set(region.name, {
+              lastCount: total,
+              lastProvider: fallbackProvider.name,
+              lastTime: Date.now(),
+            });
+            logParts.push(`  ✓ ${region.name}: +${newCount} from ${fallbackProvider.name}`);
+          }
+        }
+        // Silently skip failed retries to keep logs clean
+      }
+    }
+  }
+
+  const flights = Array.from(seen.values());
+
+  // Update position cache for next cycle's continuity checks
+  const now = Date.now();
+  previousPositions.clear();
+  for (const f of flights) {
+    previousPositions.set(f.id, { lat: f.lat, lon: f.lon, time: now });
+  }
+
+  const gapCount = gappedRegions.length;
+  const header = `${flights.length} flights | ${REGIONS.length - gapCount}/${REGIONS.length} OK` +
+    (gapCount > 0 ? ` | ${gapCount} gaps` : '');
+
+  return { flights, stats: `${header}\n  ${logParts.join('\n  ')}` };
+}
+
+// ─── Mock Fallback (last resort only) ────────────────────────────────────────
 let mockFlights: any[] | null = null;
 let lastMockUpdate = Date.now();
 
@@ -206,13 +472,13 @@ const MOCK_CALLSIGNS = ['AAL', 'DAL', 'UAL', 'BAW', 'SWA', 'AFR', 'DLH', 'FDX', 
                         'UAE', 'QTR', 'THY', 'KAL', 'ANA', 'SIA', 'ETH', 'AIC', 'RYR', 'EZY'];
 const MOCK_TYPES = ['B738', 'A320', 'B77W', 'A388', 'AS50', 'B744', 'E190', 'A321', 'R44', 'B789'];
 const MOCK_REGIONS = [
-  { lat: 39.8, lon: -98.5, span: 18 },  // US Center
-  { lat: 48.8, lon: 2.3,   span: 12 },  // Western Europe
-  { lat: 34.0, lon: -118.2,span: 10 },  // US West Coast
-  { lat: 40.7, lon: -74.0, span: 10 },  // US East Coast
-  { lat: 25.0, lon: 45.0,  span: 15 },  // Middle East
-  { lat: 35.0, lon: 110.0, span: 15 },  // East Asia
-  { lat: 20.0, lon: 78.0,  span: 12 },  // India
+  { lat: 39.8, lon: -98.5, span: 18 },
+  { lat: 48.8, lon: 2.3,   span: 12 },
+  { lat: 34.0, lon: -118.2,span: 10 },
+  { lat: 40.7, lon: -74.0, span: 10 },
+  { lat: 25.0, lon: 45.0,  span: 15 },
+  { lat: 35.0, lon: 110.0, span: 15 },
+  { lat: 20.0, lon: 78.0,  span: 12 },
 ];
 const AIRCRAFT_TYPES: AircraftType[] = ['jet', 'widebody', 'helicopter', 'cargo', 'jet', 'jet'];
 
@@ -272,40 +538,38 @@ function getMockFlights(): Flight[] {
 export async function GET() {
   const now = Date.now();
 
+  // Serve fresh cache
   if (cachedFlights && (now - lastFetchTime) < CACHE_TTL_MS) {
     return NextResponse.json(cachedFlights);
   }
 
   try {
-    const results = await Promise.allSettled(
-      REGIONS.map(r => fetchAdsbRegion(r.lat, r.lon))
-    );
-
-    // Merge & deduplicate by ICAO hex
-    const seen = new Map<string, Flight>();
-    for (const result of results) {
-      if (result.status !== 'fulfilled') continue;
-      for (const ac of result.value) {
-        if (seen.has(ac.hex)) continue;
-        const flight = mapAdsbToFlight(ac);
-        if (flight) seen.set(ac.hex, flight);
-      }
-    }
-
-    const flights = Array.from(seen.values());
+    const { flights, stats } = await fetchAllRegions();
+    console.log(`[AeroTrack] ${stats}`);
 
     if (flights.length > 0) {
       cachedFlights = flights;
       lastFetchTime = now;
-      console.log(`[AeroTrack] adsb.lol: ${flights.length} flights from ${results.filter(r => r.status === 'fulfilled').length}/${REGIONS.length} regions`);
       return NextResponse.json(flights);
     }
 
-    // If all regions returned empty, fall back to mock
-    throw new Error('No flights returned from any adsb.lol region');
+    // All providers returned 0 — try stale cache first
+    if (cachedFlights && (now - lastFetchTime) < STALE_CACHE_TTL_MS) {
+      console.warn(`[AeroTrack] All providers empty, serving stale cache (${cachedFlights.length} flights, ${Math.round((now - lastFetchTime) / 1000)}s old)`);
+      return NextResponse.json(cachedFlights);
+    }
+
+    throw new Error('All providers returned 0 flights and cache is expired');
 
   } catch (error) {
-    console.warn('[AeroTrack] adsb.lol fetch failed, using mock data:', (error as Error).message);
+    // Phase 3: Stale cache before mock
+    if (cachedFlights && cachedFlights.length > 0 && (now - lastFetchTime) < STALE_CACHE_TTL_MS) {
+      console.warn(`[AeroTrack] Fetch error, serving stale cache: ${(error as Error).message}`);
+      return NextResponse.json(cachedFlights);
+    }
+
+    // Last resort: mock data
+    console.warn(`[AeroTrack] All sources failed, using mock data: ${(error as Error).message}`);
     const fallback = getMockFlights();
     cachedFlights = fallback;
     lastFetchTime = now;

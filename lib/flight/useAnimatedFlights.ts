@@ -12,9 +12,10 @@ const DEG2RAD = Math.PI / 180;
 
 /**
  * Position correction half-life in seconds.
- * Lower value = snappier correction; 1.5s feels natural for slow-moving icons.
+ * Higher = smoother but slower correction. 3.0s prevents visible jumping
+ * when different API providers report slightly different positions.
  */
-const POS_HALFLIFE = 1.5;
+const POS_HALFLIFE = 3.0;
 
 /**
  * Heading correction half-life in seconds.
@@ -36,6 +37,14 @@ const TRAIL_MAX_POINTS = 180;
 
 /** Append a trail point every this many frames (at 60fps = ~4pts/sec for quick visibility) */
 const TRAIL_FRAME_INTERVAL = 15;
+
+/**
+ * Maximum degrees targetPos is allowed to jump per API update.
+ * ~0.5° lat ≈ 55km. Anything larger gets clamped to this distance in the
+ * direction of the jump, so it smoothly catches up over several frames
+ * instead of teleporting.
+ */
+const MAX_TARGET_JUMP_DEG = 0.5;
 
 // ─── Internal state per flight ──────────────────────────────────────────────
 
@@ -141,21 +150,30 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
 
         if (s) {
           // ── Existing flight ──────────────────────────────────────
-          // Snap targetPos to the new API truth only if it is at least
-          // as far forward (in the direction of travel) as the current
-          // renderPos.  This guards against stale cached API responses
-          // that would otherwise pull the plane backward.
+          // Compute the vector from renderPos to the new API position
+          const dLat = f.lat - s.renderLat;
+          const dLon = f.lon - s.renderLon;
+
+          // Backward-snap guard: only accept if the new position isn't
+          // significantly behind the direction of travel.
           const hdgRad = s.renderHeading * DEG2RAD;
           const ux = Math.sin(hdgRad);
           const uy = Math.cos(hdgRad);
+          const cosLat = Math.cos(s.renderLat * DEG2RAD);
+          const dot = dLat * uy + (dLon * cosLat) * ux;
 
-          const dLat = f.lat - s.renderLat;
-          const dLon = (f.lon - s.renderLon) * Math.cos(s.renderLat * DEG2RAD);
-
-          const dot = dLat * uy + dLon * ux;
-          if (dot > -0.005) {
-            s.targetLat = f.lat;
-            s.targetLon = f.lon;
+          if (dot > -0.003) {
+            // Clamp the jump magnitude so targetPos never teleports
+            const jumpMag = Math.sqrt(dLat * dLat + dLon * dLon);
+            if (jumpMag > MAX_TARGET_JUMP_DEG && jumpMag > 0) {
+              // Move targetPos only MAX_TARGET_JUMP_DEG in the direction of the jump
+              const scale = MAX_TARGET_JUMP_DEG / jumpMag;
+              s.targetLat = s.renderLat + dLat * scale;
+              s.targetLon = s.renderLon + dLon * scale;
+            } else {
+              s.targetLat = f.lat;
+              s.targetLon = f.lon;
+            }
           }
 
           s.targetHeading = f.heading;

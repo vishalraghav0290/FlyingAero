@@ -64,21 +64,12 @@ export default function FlightMap() {
   const [mapTheme, setMapTheme] = useState<'dark' | 'light' | 'satellite'>('dark');
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  const maptilerKey = process.env.NEXT_PUBLIC_MAPTILER_KEY || '';
-
-  // Use OpenFreeMap (free, no key needed) by default.
-  // If a MapTiler key is set AND valid, use MapTiler for richer tiles.
-  const MAP_STYLES: Record<string, string> = maptilerKey
-    ? {
-        dark:      `https://api.maptiler.com/maps/darkmatter/style.json?key=${maptilerKey}`,
-        light:     `https://api.maptiler.com/maps/dataviz-light/style.json?key=${maptilerKey}`,
-        satellite: `https://api.maptiler.com/maps/hybrid/style.json?key=${maptilerKey}`,
-      }
-    : {
-        dark:      'https://tiles.openfreemap.org/styles/dark',
-        light:     'https://tiles.openfreemap.org/styles/bright',
-        satellite: 'https://tiles.openfreemap.org/styles/liberty',
-      };
+  // OpenFreeMap: free, no API key, no domain restrictions — works everywhere
+  const MAP_STYLES: Record<string, string> = {
+    dark:      'https://tiles.openfreemap.org/styles/dark',
+    light:     'https://tiles.openfreemap.org/styles/bright',
+    satellite: 'https://tiles.openfreemap.org/styles/liberty',
+  };
 
   const isLight = mapTheme === 'light';
 

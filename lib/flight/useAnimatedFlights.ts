@@ -12,10 +12,10 @@ const DEG2RAD = Math.PI / 180;
 
 /**
  * Position correction half-life in seconds.
- * Higher = smoother but slower correction. 3.0s prevents visible jumping
- * when different API providers report slightly different positions.
+ * Higher = smoother. 4s gives very gentle correction that avoids visible
+ * teleporting when providers report slightly different positions.
  */
-const POS_HALFLIFE = 3.0;
+const POS_HALFLIFE = 4.0;
 
 /**
  * Heading correction half-life in seconds.
@@ -39,12 +39,12 @@ const TRAIL_MAX_POINTS = 180;
 const TRAIL_FRAME_INTERVAL = 15;
 
 /**
- * Maximum degrees targetPos is allowed to jump per API update.
- * ~0.5° lat ≈ 55km. Anything larger gets clamped to this distance in the
- * direction of the jump, so it smoothly catches up over several frames
- * instead of teleporting.
+ * How many consecutive API cycles a flight can be "missing" before we prune it.
+ * With round-robin providers, different cycles return different flight subsets.
+ * Keeping flights alive for 3 missed polls (~30s) prevents the mass-disappearance
+ * bug where hundreds of planes vanish because a different provider was queried.
  */
-const MAX_TARGET_JUMP_DEG = 0.5;
+const MAX_MISSED_POLLS = 3;
 
 // ─── Internal state per flight ──────────────────────────────────────────────
 
@@ -79,6 +79,9 @@ interface FlightState {
   // Trail ring-buffer: list of [lon, lat] points (oldest first)
   trail: [number, number][];
   trailFrameCounter: number;
+
+  // How many consecutive polls this flight has been missing from the API
+  missedPolls: number;
 }
 
 // ─── Hook ───────────────────────────────────────────────────────────────────
@@ -108,13 +111,8 @@ export interface AnimatedFlightsResult {
  *
  *   5. Append [lon, lat] to trail ring-buffer every TRAIL_FRAME_INTERVAL frames.
  *
- * WHY WE DON'T ADVANCE targetPos:
- *   The server can return stale cached data. If we were also advancing
- *   targetPos on the client, the cached (old) position would arrive and
- *   snap targetPos backward — causing the visible "glitch backward" bug.
- *
- * RESULT: planes glide forward continuously, with small, smooth corrections
- * when real data arrives, zero backward glitches, and an accurate trail.
+ *   6. Flights are kept alive for MAX_MISSED_POLLS cycles before pruning,
+ *      so they don't vanish when a different provider is queried.
  */
 export function useAnimatedFlights(): AnimatedFlightsResult {
   const [displayFlights, setDisplayFlights] = useState<Flight[]>([]);
@@ -149,33 +147,12 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
         const s = states.get(f.id);
 
         if (s) {
-          // ── Existing flight ──────────────────────────────────────
-          // Compute the vector from renderPos to the new API position
-          const dLat = f.lat - s.renderLat;
-          const dLon = f.lon - s.renderLon;
-
-          // Backward-snap guard: only accept if the new position isn't
-          // significantly behind the direction of travel.
-          const hdgRad = s.renderHeading * DEG2RAD;
-          const ux = Math.sin(hdgRad);
-          const uy = Math.cos(hdgRad);
-          const cosLat = Math.cos(s.renderLat * DEG2RAD);
-          const dot = dLat * uy + (dLon * cosLat) * ux;
-
-          if (dot > -0.003) {
-            // Clamp the jump magnitude so targetPos never teleports
-            const jumpMag = Math.sqrt(dLat * dLat + dLon * dLon);
-            if (jumpMag > MAX_TARGET_JUMP_DEG && jumpMag > 0) {
-              // Move targetPos only MAX_TARGET_JUMP_DEG in the direction of the jump
-              const scale = MAX_TARGET_JUMP_DEG / jumpMag;
-              s.targetLat = s.renderLat + dLat * scale;
-              s.targetLon = s.renderLon + dLon * scale;
-            } else {
-              s.targetLat = f.lat;
-              s.targetLon = f.lon;
-            }
-          }
-
+          // ── Existing flight: update target position ──────────────
+          // The server-side haversine check (150km max) already prevents
+          // impossible jumps, so we always accept the new position here.
+          // The rubber-band with POS_HALFLIFE=4s will interpolate smoothly.
+          s.targetLat = f.lat;
+          s.targetLon = f.lon;
           s.targetHeading = f.heading;
           s.velocity = f.velocity;
           s.altitude = f.altitude;
@@ -190,6 +167,8 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
           s.airline = f.airline;
           s.country = f.country;
           s.countryFlag = f.countryFlag;
+          // Reset missed poll counter — this flight is alive
+          s.missedPolls = 0;
         } else {
           // ── Brand-new flight — snap everything to actual position ──
           states.set(f.id, {
@@ -215,13 +194,22 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
             renderHeading: f.heading,
             trail: [[f.lon, f.lat]],
             trailFrameCounter: 0,
+            missedPolls: 0,
           });
         }
       }
 
-      // Prune flights that vanished from the API
-      for (const id of states.keys()) {
-        if (!seen.has(id)) states.delete(id);
+      // Graceful pruning: increment missedPolls for flights not in this response.
+      // Only delete after MAX_MISSED_POLLS consecutive misses.
+      // This prevents the "mass disappearance" bug caused by round-robin
+      // provider rotation returning different flight subsets each cycle.
+      for (const [id, state] of states.entries()) {
+        if (!seen.has(id)) {
+          state.missedPolls++;
+          if (state.missedPolls > MAX_MISSED_POLLS) {
+            states.delete(id);
+          }
+        }
       }
     } catch (e) {
       console.error('Flight fetch error:', e);
@@ -250,7 +238,7 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
       lastFrameRef.current = now - (elapsed % frameMs);
 
       // dt in seconds, capped to avoid huge jumps on tab-switch
-      const dt = Math.min(elapsed / 1000, 0.15);
+      const dt = Math.min(elapsed / 1000, 0.1);
 
       const states = statesRef.current;
       if (states.size === 0) return;

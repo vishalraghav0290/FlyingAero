@@ -148,11 +148,19 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
 
         if (s) {
           // ── Existing flight: update target position ──────────────
-          // The server-side haversine check (150km max) already prevents
-          // impossible jumps, so we always accept the new position here.
-          // The rubber-band with POS_HALFLIFE=4s will interpolate smoothly.
-          s.targetLat = f.lat;
-          s.targetLon = f.lon;
+          // Forward-only guard: reject API positions that are behind
+          // the current render position (stale data from cache/provider hop).
+          const dLat = f.lat - s.renderLat;
+          const dLon = f.lon - s.renderLon;
+          const hdgRad = s.renderHeading * (Math.PI / 180);
+          const fwd = dLat * Math.cos(hdgRad) + dLon * Math.sin(hdgRad);
+
+          if (fwd > -0.002) {
+            // Position is forward or nearly sideways — accept it
+            s.targetLat = f.lat;
+            s.targetLon = f.lon;
+          }
+          // If behind, keep old targetPos — dead reckoning will advance naturally
           s.targetHeading = f.heading;
           s.velocity = f.velocity;
           s.altitude = f.altitude;

@@ -98,17 +98,21 @@ export default function FlightMap() {
     });
   };
 
-  // Apply filters
+  // Apply filters and sort by altitude (low → high) so higher planes render on top
   const visibleFlights = useMemo(() => {
-    if (activeFilters.size === 0) return flights;
-    return flights.filter(f => {
-      if (activeFilters.has('jets') && (f.aircraftType === 'jet' || f.aircraftType === 'widebody')) return true;
-      if (activeFilters.has('helicopters') && f.aircraftType === 'helicopter') return true;
-      if (activeFilters.has('cargo') && f.aircraftType === 'cargo') return true;
-      if (activeFilters.has('light') && f.aircraftType === 'light') return true;
-      if (activeFilters.has('emergency') && f.isEmergency) return true;
-      return false;
-    });
+    let filtered = flights;
+    if (activeFilters.size > 0) {
+      filtered = flights.filter(f => {
+        if (activeFilters.has('jets') && (f.aircraftType === 'jet' || f.aircraftType === 'widebody')) return true;
+        if (activeFilters.has('helicopters') && f.aircraftType === 'helicopter') return true;
+        if (activeFilters.has('cargo') && f.aircraftType === 'cargo') return true;
+        if (activeFilters.has('light') && f.aircraftType === 'light') return true;
+        if (activeFilters.has('emergency') && f.isEmergency) return true;
+        return false;
+      });
+    }
+    // Sort ascending by altitude → deck.gl renders last items on top
+    return [...filtered].sort((a, b) => a.altitude - b.altitude);
   }, [flights, activeFilters]);
 
   // ─ Build per-type icon layers ──────────────────────────────────────────────
@@ -117,8 +121,8 @@ export default function FlightMap() {
 
     return types.map((type) => {
       const data = visibleFlights.filter(f => f.aircraftType === type);
-      const isHelicopter = type === 'helicopter';
-      const isLight = type === 'light';
+      const isHeli = type === 'helicopter';
+      const isLightAc = type === 'light';
 
       return new IconLayer<Flight>({
         id: `flight-icons-${type}`,
@@ -128,12 +132,13 @@ export default function FlightMap() {
         iconAtlas: ICON_ATLAS[type],
         iconMapping: ICON_MAPPING,
         getIcon: () => 'airplane',
-        getPosition: (d) => [d.lon, d.lat],
+        // Include altitude as elevation (feet → meters) for z-ordering
+        getPosition: (d) => [d.lon, d.lat, d.altitude * 0.3048],
         getAngle: (d) => -d.heading,
-        getSize: isHelicopter ? 28 : isLight ? 20 : 36,
+        getSize: isHeli ? 28 : isLightAc ? 20 : 36,
         sizeScale: currentZoom / 6,
-        sizeMinPixels: isHelicopter ? 5 : isLight ? 4 : 8,
-        sizeMaxPixels: isHelicopter ? 55 : isLight ? 40 : 80,
+        sizeMinPixels: isHeli ? 5 : isLightAc ? 4 : 8,
+        sizeMaxPixels: isHeli ? 55 : isLightAc ? 40 : 80,
         getColor: (d) => {
           if (d.isEmergency) return [...EMERGENCY_COLOR, 255] as [number, number, number, number];
           const isSelected = d.id === selectedFlight?.id;
@@ -148,7 +153,7 @@ export default function FlightMap() {
         },
       });
     });
-  }, [visibleFlights, selectedFlight, currentZoom]);
+  }, [visibleFlights, selectedFlight, currentZoom, isLight]);
 
   // ─ FlightRadar24-style trail (gradient fade from old → current) ───────────
   const fadingTrailLayers = useMemo(() => {

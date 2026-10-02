@@ -248,31 +248,101 @@ function mapAdsbToFlight(ac: any): Flight | null {
   const callsign = (ac.flight ?? ac.hex ?? '').trim();
   const typeCode = (ac.t ?? '').trim().toUpperCase();
   const category = (ac.category ?? '').toUpperCase();
+
   const meta = lookupAirline(callsign);
-  const onGround = ac.alt_baro === 'ground' || ac.alt_baro === 0;
-  const altFt = onGround ? 0 : (typeof ac.alt_baro === 'number' ? ac.alt_baro : 0);
-  const squawk = ac.squawk ?? '';
+  const isEmergency = ac.squawk ? EMERGENCY_SQUAWKS.has(ac.squawk) : false;
 
   return {
     id: ac.hex,
     callsign: callsign || ac.hex,
-    lon: ac.lon,
     lat: ac.lat,
-    heading: ac.track ?? 0,
-    altitude: altFt,
-    velocity: ac.gs ?? 0,              // knots
-    verticalRate: ac.baro_rate ?? 0,   // ft/min
-    onGround,
+    lon: ac.lon,
+    altitude: ac.alt_baro === 'ground' ? 0 : Number(ac.alt_baro || 0),
+    velocity: Number(ac.gs || 0),
+    heading: Number(ac.track || 0),
+    verticalRate: Number(ac.baro_rate || 0),
+    onGround: ac.alt_baro === 'ground',
     aircraftType: categoryToType(category, typeCode),
-    aircraftModel: typeCode,
-    registration: (ac.r ?? '').trim(),
-    squawk,
-    isEmergency: EMERGENCY_SQUAWKS.has(squawk),
+    aircraftModel: MODEL_NAMES[typeCode] || typeCode,
+    registration: ac.r || '',
+    squawk: ac.squawk || '',
+    isEmergency,
     airline: meta.airline,
     country: meta.country,
     countryFlag: meta.flag,
   };
 }
+
+function mapOpenSkyToFlight(state: any[]): Flight | null {
+  const [hex, callsign, origin_country, time_pos, last_contact, lon, lat, baro_alt, on_ground, velocity, true_track, vertical_rate, sensors, geo_alt, squawk, spi, position_source, category] = state;
+  
+  if (lat == null || lon == null || true_track == null) return null;
+
+  const csign = (callsign || hex || '').trim();
+  const meta = lookupAirline(csign);
+  
+  // Category mapping:
+  let aircraftType: AircraftType = 'jet';
+  if (category === 7 || category === 8) aircraftType = 'helicopter';
+  else if (category === 4 || category === 6) aircraftType = 'widebody';
+  else if (category === 2 || category === 3) aircraftType = 'light';
+  else aircraftType = 'jet';
+  
+  const isEmergency = squawk ? EMERGENCY_SQUAWKS.has(squawk) : false;
+
+  return {
+    id: hex,
+    callsign: csign,
+    lat,
+    lon,
+    altitude: baro_alt ? baro_alt * 3.28084 : 0, // meters to feet
+    velocity: velocity ? velocity * 1.94384 : 0, // m/s to knots
+    heading: true_track,
+    verticalRate: vertical_rate ? vertical_rate * 196.85 : 0, // m/s to ft/min
+    onGround: !!on_ground,
+    aircraftType,
+    aircraftModel: 'Unknown',
+    registration: '', // not provided by opensky directly
+    squawk: squawk || '',
+    isEmergency,
+    airline: meta.airline,
+    country: origin_country || meta.country,
+    countryFlag: meta.flag,
+  };
+}
+
+async function fetchOpenSkyAPI(): Promise<Flight[]> {
+  const username = process.env.OPENSKY_USERNAME;
+  const password = process.env.OPENSKY_PASSWORD;
+  
+  const headers: HeadersInit = {};
+  if (username && password) {
+    headers['Authorization'] = 'Basic ' + Buffer.from(username + ':' + password).toString('base64');
+  }
+
+  const res = await fetch('https://opensky-network.org/api/states/all', {
+    headers,
+    next: { revalidate: 0 },
+  });
+
+  if (!res.ok) {
+    if (res.status === 429) {
+      throw new Error('OPENSKY_RATE_LIMIT');
+    }
+    throw new Error(`OpenSky API error: ${res.status}`);
+  }
+
+  const data = await res.json();
+  const states = data.states || [];
+  const flights: Flight[] = [];
+  
+  for (const ac of states) {
+     const flight = mapOpenSkyToFlight(ac);
+     if (flight) flights.push(flight);
+  }
+  return flights;
+}
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SMART GAP DETECTION & MULTI-SOURCE RECOVERY
@@ -534,13 +604,33 @@ function getMockFlights(): Flight[] {
 }
 
 // ─── API Route Handler ───────────────────────────────────────────────────────
+import { NextRequest } from 'next/server';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const now = Date.now();
+  const provider = request.nextUrl.searchParams.get('provider');
+  const useAdsb = provider === 'adsb';
 
   // Serve fresh cache
   if (cachedFlights && (now - lastFetchTime) < CACHE_TTL_MS) {
     return NextResponse.json(cachedFlights);
+  }
+
+  if (!useAdsb) {
+    try {
+      const flights = await fetchOpenSkyAPI();
+      cachedFlights = flights;
+      lastFetchTime = now;
+      console.log(`[AeroTrack] Fetched ${flights.length} flights from OpenSky API`);
+      return NextResponse.json(flights);
+    } catch (error: any) {
+      if (error.message === 'OPENSKY_RATE_LIMIT') {
+        console.warn('[AeroTrack] OpenSky API rate limit reached');
+        return NextResponse.json({ error: 'RATE_LIMIT' }, { status: 429 });
+      }
+      console.error(`[AeroTrack] OpenSky API Error: ${error.message}`);
+      return NextResponse.json({ error: 'OPENSKY_ERROR', details: error.message }, { status: 500 });
+    }
   }
 
   try {

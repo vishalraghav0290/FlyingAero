@@ -89,6 +89,8 @@ interface FlightState {
 export interface AnimatedFlightsResult {
   flights: Flight[];
   trailMap: Map<string, [number, number][]>;
+  isRateLimited: boolean;
+  switchProvider: () => void;
 }
 
 /**
@@ -117,6 +119,13 @@ export interface AnimatedFlightsResult {
 export function useAnimatedFlights(): AnimatedFlightsResult {
   const [displayFlights, setDisplayFlights] = useState<Flight[]>([]);
   const [trailMap, setTrailMap] = useState<Map<string, [number, number][]>>(new Map());
+  const [provider, setProvider] = useState<'opensky' | 'adsb'>('opensky');
+  const [isRateLimited, setIsRateLimited] = useState(false);
+
+  const switchProvider = useCallback(() => {
+    setProvider('adsb');
+    setIsRateLimited(false);
+  }, []);
 
   // Mutable refs that persist across renders without triggering them
   const statesRef = useRef(new Map() as Map<string, FlightState>);
@@ -128,7 +137,11 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
 
   const fetchAndMerge = useCallback(async () => {
     try {
-      const res = await fetch('/api/flight');
+      const res = await fetch(`/api/flight?provider=${provider}`);
+      if (res.status === 429) {
+        setIsRateLimited(true);
+        return;
+      }
       if (!res.ok) return;
       const raw: unknown = await res.json();
       if (!Array.isArray(raw)) return;
@@ -222,7 +235,7 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
     } catch (e) {
       console.error('Flight fetch error:', e);
     }
-  }, []);
+  }, [provider]);
 
   // ── Start API polling ───────────────────────────────────────────────────
 
@@ -325,5 +338,5 @@ export function useAnimatedFlights(): AnimatedFlightsResult {
     return () => cancelAnimationFrame(rafIdRef.current);
   }, []);
 
-  return { flights: displayFlights, trailMap };
+  return { flights: displayFlights, trailMap, isRateLimited, switchProvider };
 }

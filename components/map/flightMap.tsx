@@ -56,7 +56,7 @@ function DeckGLOverlay(props: { layers: any[]; interleaved?: boolean }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function FlightMap() {
-  const { flights, trailMap } = useAnimatedFlights();
+  const { flights, trailMap, isRateLimited, switchProvider } = useAnimatedFlights();
 
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
   const [currentZoom, setCurrentZoom] = useState<number>(4);
@@ -258,15 +258,54 @@ export default function FlightMap() {
 
   return (
     <div className="w-screen h-screen relative font-sans bg-slate-950">
-      <MapGL
-        initialViewState={{ longitude: -95.0, latitude: 38.0, zoom: 4 }}
-        style={{ width: '100%', height: '100%' }}
-        mapStyle={MAP_STYLES[mapTheme]}
-        onClick={handleMapClick}
-        onMove={(evt) => setCurrentZoom(evt.viewState.zoom)}
-      >
-        <DeckGLOverlay layers={allLayers} />
-      </MapGL>
+      <div style={{ width: '100%', height: '100%', filter: isRateLimited ? 'blur(8px)' : 'none', transition: 'filter 0.3s ease' }}>
+        <MapGL
+          initialViewState={{ longitude: -95.0, latitude: 38.0, zoom: 4 }}
+          style={{ width: '100%', height: '100%' }}
+          mapStyle={MAP_STYLES[mapTheme]}
+          onClick={handleMapClick}
+          onMove={(evt) => setCurrentZoom(evt.viewState.zoom)}
+        >
+          <DeckGLOverlay layers={allLayers} />
+        </MapGL>
+      </div>
+
+      {/* ── Rate Limit Modal ───────────────────────────────────────── */}
+      {isRateLimited && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 100,
+          background: 'rgba(0,0,0,0.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <div style={{
+            background: 'rgba(15,20,30,0.95)',
+            border: '1px solid rgba(255,255,255,0.15)',
+            padding: '30px', borderRadius: '16px',
+            color: 'white', textAlign: 'center',
+            maxWidth: '400px', boxShadow: '0 20px 50px rgba(0,0,0,0.6)',
+            animation: 'dropIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+          }}>
+            <h2 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '12px' }}>OpenSky API Limit Reached</h2>
+            <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)', marginBottom: '24px', lineHeight: 1.5 }}>
+              The OpenSky Network API has strict rate limits which have just been exceeded. Would you like to switch to robust, community-driven ADS-B providers to continue tracking live flights?
+            </p>
+            <button
+              onClick={switchProvider}
+              style={{
+                background: '#3b82f6', color: 'white', border: 'none',
+                padding: '12px 24px', borderRadius: '8px', fontSize: '14px',
+                fontWeight: 600, cursor: 'pointer', transition: 'background 0.2s, transform 0.1s'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = '#2563eb'}
+              onMouseLeave={e => e.currentTarget.style.background = '#3b82f6'}
+              onMouseDown={e => e.currentTarget.style.transform = 'scale(0.97)'}
+              onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+            >
+              Switch to ADS-B Providers
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Flight Detail Sidebar ──────────────────────────────────── */}
       <FlightSidebar

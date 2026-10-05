@@ -3,7 +3,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import './globals.css';
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://aerotrack.live'),
+  metadataBase: new URL('https://aerotrack.vishalraghav.dev'),
   title: {
     default: 'AeroTrack — Live Flight Tracker | Real-Time Aircraft Radar Map by Vishal Raghav',
     template: '%s | AeroTrack by Vishal Raghav',

@@ -11,6 +11,7 @@
 # local-only folders
 .vercel
 worker
+relay
 .wrangler
 node_modules
 .next

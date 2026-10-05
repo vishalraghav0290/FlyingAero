@@ -3,69 +3,69 @@ import type { AircraftType, Flight } from '@/lib/flight/types';
 
 // ─── Airline Metadata Lookup ──────────────────────────────────────────────────
 const AIRLINE_DB: Record<string, { airline: string; country: string; flag: string }> = {
-  AAL: { airline: 'American Airlines',    country: 'United States', flag: '🇺🇸' },
-  DAL: { airline: 'Delta Air Lines',      country: 'United States', flag: '🇺🇸' },
-  UAL: { airline: 'United Airlines',      country: 'United States', flag: '🇺🇸' },
-  SWA: { airline: 'Southwest Airlines',   country: 'United States', flag: '🇺🇸' },
-  JBU: { airline: 'JetBlue Airways',      country: 'United States', flag: '🇺🇸' },
-  FDX: { airline: 'FedEx Express',        country: 'United States', flag: '🇺🇸' },
-  UPS: { airline: 'UPS Airlines',         country: 'United States', flag: '🇺🇸' },
-  SKW: { airline: 'SkyWest Airlines',     country: 'United States', flag: '🇺🇸' },
-  ASA: { airline: 'Alaska Airlines',      country: 'United States', flag: '🇺🇸' },
-  EJA: { airline: 'NetJets',              country: 'United States', flag: '🇺🇸' },
-  NKS: { airline: 'Spirit Airlines',      country: 'United States', flag: '🇺🇸' },
-  FFT: { airline: 'Frontier Airlines',    country: 'United States', flag: '🇺🇸' },
-  BAW: { airline: 'British Airways',      country: 'United Kingdom', flag: '🇬🇧' },
-  EZY: { airline: 'easyJet',             country: 'United Kingdom', flag: '🇬🇧' },
-  VIR: { airline: 'Virgin Atlantic',      country: 'United Kingdom', flag: '🇬🇧' },
-  AFR: { airline: 'Air France',           country: 'France',        flag: '🇫🇷' },
-  DLH: { airline: 'Lufthansa',            country: 'Germany',       flag: '🇩🇪' },
-  BER: { airline: 'Air Berlin',           country: 'Germany',       flag: '🇩🇪' },
-  KLM: { airline: 'KLM Royal Dutch',      country: 'Netherlands',   flag: '🇳🇱' },
-  UAE: { airline: 'Emirates',             country: 'UAE',           flag: '🇦🇪' },
-  ETD: { airline: 'Etihad Airways',       country: 'UAE',           flag: '🇦🇪' },
-  QTR: { airline: 'Qatar Airways',        country: 'Qatar',         flag: '🇶🇦' },
-  THY: { airline: 'Turkish Airlines',     country: 'Turkey',        flag: '🇹🇷' },
-  SIA: { airline: 'Singapore Airlines',   country: 'Singapore',     flag: '🇸🇬' },
-  QFA: { airline: 'Qantas',              country: 'Australia',     flag: '🇦🇺' },
-  ANA: { airline: 'All Nippon Airways',   country: 'Japan',         flag: '🇯🇵' },
-  JAL: { airline: 'Japan Airlines',       country: 'Japan',         flag: '🇯🇵' },
-  CPA: { airline: 'Cathay Pacific',       country: 'Hong Kong',     flag: '🇭🇰' },
-  CCA: { airline: 'Air China',            country: 'China',         flag: '🇨🇳' },
-  CSN: { airline: 'China Southern',       country: 'China',         flag: '🇨🇳' },
-  CES: { airline: 'China Eastern',        country: 'China',         flag: '🇨🇳' },
-  KAL: { airline: 'Korean Air',           country: 'South Korea',   flag: '🇰🇷' },
-  AAR: { airline: 'Asiana Airlines',      country: 'South Korea',   flag: '🇰🇷' },
-  AIC: { airline: 'Air India',            country: 'India',         flag: '🇮🇳' },
-  IGO: { airline: 'IndiGo',              country: 'India',         flag: '🇮🇳' },
-  IBE: { airline: 'Iberia',               country: 'Spain',         flag: '🇪🇸' },
-  VLG: { airline: 'Vueling',              country: 'Spain',         flag: '🇪🇸' },
-  RYR: { airline: 'Ryanair',              country: 'Ireland',       flag: '🇮🇪' },
-  WZZ: { airline: 'Wizz Air',             country: 'Hungary',       flag: '🇭🇺' },
-  AZA: { airline: 'ITA Airways',          country: 'Italy',         flag: '🇮🇹' },
-  SVA: { airline: 'Saudia',               country: 'Saudi Arabia',  flag: '🇸🇦' },
-  FDB: { airline: 'flydubai',             country: 'UAE',           flag: '🇦🇪' },
-  RAM: { airline: 'Royal Air Maroc',      country: 'Morocco',       flag: '🇲🇦' },
-  ETH: { airline: 'Ethiopian Airlines',   country: 'Ethiopia',      flag: '🇪🇹' },
-  KQA: { airline: 'Kenya Airways',        country: 'Kenya',         flag: '🇰🇪' },
-  JST: { airline: 'Jetstar',              country: 'Australia',     flag: '🇦🇺' },
-  NZL: { airline: 'Air New Zealand',      country: 'New Zealand',   flag: '🇳🇿' },
-  AVA: { airline: 'Avianca',              country: 'Colombia',      flag: '🇨🇴' },
-  LAM: { airline: 'LATAM Airlines',       country: 'Chile',         flag: '🇨🇱' },
-  GLO: { airline: 'GOL Linhas Aéreas',    country: 'Brazil',        flag: '🇧🇷' },
-  TAM: { airline: 'LATAM Brasil',         country: 'Brazil',        flag: '🇧🇷' },
-  AFL: { airline: 'Aeroflot',             country: 'Russia',        flag: '🇷🇺' },
-  SUR: { airline: 'S7 Airlines',          country: 'Russia',        flag: '🇷🇺' },
-  BEE: { airline: 'flybe',                country: 'United Kingdom', flag: '🇬🇧' },
-  LOT: { airline: 'LOT Polish Airlines',  country: 'Poland',        flag: '🇵🇱' },
-  SAS: { airline: 'Scandinavian Airlines',country: 'Sweden',        flag: '🇸🇪' },
-  FIN: { airline: 'Finnair',              country: 'Finland',       flag: '🇫🇮' },
-  MSR: { airline: 'EgyptAir',             country: 'Egypt',         flag: '🇪🇬' },
-  ACA: { airline: 'Air Canada',           country: 'Canada',        flag: '🇨🇦' },
-  WJA: { airline: 'WestJet',              country: 'Canada',        flag: '🇨🇦' },
-  TAP: { airline: 'TAP Air Portugal',     country: 'Portugal',      flag: '🇵🇹' },
-  SWR: { airline: 'Swiss',                country: 'Switzerland',   flag: '🇨🇭' },
-  AUA: { airline: 'Austrian Airlines',    country: 'Austria',       flag: '🇦🇹' },
+  AAL: { airline: 'American Airlines', country: 'United States', flag: '🇺🇸' },
+  DAL: { airline: 'Delta Air Lines', country: 'United States', flag: '🇺🇸' },
+  UAL: { airline: 'United Airlines', country: 'United States', flag: '🇺🇸' },
+  SWA: { airline: 'Southwest Airlines', country: 'United States', flag: '🇺🇸' },
+  JBU: { airline: 'JetBlue Airways', country: 'United States', flag: '🇺🇸' },
+  FDX: { airline: 'FedEx Express', country: 'United States', flag: '🇺🇸' },
+  UPS: { airline: 'UPS Airlines', country: 'United States', flag: '🇺🇸' },
+  SKW: { airline: 'SkyWest Airlines', country: 'United States', flag: '🇺🇸' },
+  ASA: { airline: 'Alaska Airlines', country: 'United States', flag: '🇺🇸' },
+  EJA: { airline: 'NetJets', country: 'United States', flag: '🇺🇸' },
+  NKS: { airline: 'Spirit Airlines', country: 'United States', flag: '🇺🇸' },
+  FFT: { airline: 'Frontier Airlines', country: 'United States', flag: '🇺🇸' },
+  BAW: { airline: 'British Airways', country: 'United Kingdom', flag: '🇬🇧' },
+  EZY: { airline: 'easyJet', country: 'United Kingdom', flag: '🇬🇧' },
+  VIR: { airline: 'Virgin Atlantic', country: 'United Kingdom', flag: '🇬🇧' },
+  AFR: { airline: 'Air France', country: 'France', flag: '🇫🇷' },
+  DLH: { airline: 'Lufthansa', country: 'Germany', flag: '🇩🇪' },
+  BER: { airline: 'Air Berlin', country: 'Germany', flag: '🇩🇪' },
+  KLM: { airline: 'KLM Royal Dutch', country: 'Netherlands', flag: '🇳🇱' },
+  UAE: { airline: 'Emirates', country: 'UAE', flag: '🇦🇪' },
+  ETD: { airline: 'Etihad Airways', country: 'UAE', flag: '🇦🇪' },
+  QTR: { airline: 'Qatar Airways', country: 'Qatar', flag: '🇶🇦' },
+  THY: { airline: 'Turkish Airlines', country: 'Turkey', flag: '🇹🇷' },
+  SIA: { airline: 'Singapore Airlines', country: 'Singapore', flag: '🇸🇬' },
+  QFA: { airline: 'Qantas', country: 'Australia', flag: '🇦🇺' },
+  ANA: { airline: 'All Nippon Airways', country: 'Japan', flag: '🇯🇵' },
+  JAL: { airline: 'Japan Airlines', country: 'Japan', flag: '🇯🇵' },
+  CPA: { airline: 'Cathay Pacific', country: 'Hong Kong', flag: '🇭🇰' },
+  CCA: { airline: 'Air China', country: 'China', flag: '🇨🇳' },
+  CSN: { airline: 'China Southern', country: 'China', flag: '🇨🇳' },
+  CES: { airline: 'China Eastern', country: 'China', flag: '🇨🇳' },
+  KAL: { airline: 'Korean Air', country: 'South Korea', flag: '🇰🇷' },
+  AAR: { airline: 'Asiana Airlines', country: 'South Korea', flag: '🇰🇷' },
+  AIC: { airline: 'Air India', country: 'India', flag: '🇮🇳' },
+  IGO: { airline: 'IndiGo', country: 'India', flag: '🇮🇳' },
+  IBE: { airline: 'Iberia', country: 'Spain', flag: '🇪🇸' },
+  VLG: { airline: 'Vueling', country: 'Spain', flag: '🇪🇸' },
+  RYR: { airline: 'Ryanair', country: 'Ireland', flag: '🇮🇪' },
+  WZZ: { airline: 'Wizz Air', country: 'Hungary', flag: '🇭🇺' },
+  AZA: { airline: 'ITA Airways', country: 'Italy', flag: '🇮🇹' },
+  SVA: { airline: 'Saudia', country: 'Saudi Arabia', flag: '🇸🇦' },
+  FDB: { airline: 'flydubai', country: 'UAE', flag: '🇦🇪' },
+  RAM: { airline: 'Royal Air Maroc', country: 'Morocco', flag: '🇲🇦' },
+  ETH: { airline: 'Ethiopian Airlines', country: 'Ethiopia', flag: '🇪🇹' },
+  KQA: { airline: 'Kenya Airways', country: 'Kenya', flag: '🇰🇪' },
+  JST: { airline: 'Jetstar', country: 'Australia', flag: '🇦🇺' },
+  NZL: { airline: 'Air New Zealand', country: 'New Zealand', flag: '🇳🇿' },
+  AVA: { airline: 'Avianca', country: 'Colombia', flag: '🇨🇴' },
+  LAM: { airline: 'LATAM Airlines', country: 'Chile', flag: '🇨🇱' },
+  GLO: { airline: 'GOL Linhas Aéreas', country: 'Brazil', flag: '🇧🇷' },
+  TAM: { airline: 'LATAM Brasil', country: 'Brazil', flag: '🇧🇷' },
+  AFL: { airline: 'Aeroflot', country: 'Russia', flag: '🇷🇺' },
+  SUR: { airline: 'S7 Airlines', country: 'Russia', flag: '🇷🇺' },
+  BEE: { airline: 'flybe', country: 'United Kingdom', flag: '🇬🇧' },
+  LOT: { airline: 'LOT Polish Airlines', country: 'Poland', flag: '🇵🇱' },
+  SAS: { airline: 'Scandinavian Airlines', country: 'Sweden', flag: '🇸🇪' },
+  FIN: { airline: 'Finnair', country: 'Finland', flag: '🇫🇮' },
+  MSR: { airline: 'EgyptAir', country: 'Egypt', flag: '🇪🇬' },
+  ACA: { airline: 'Air Canada', country: 'Canada', flag: '🇨🇦' },
+  WJA: { airline: 'WestJet', country: 'Canada', flag: '🇨🇦' },
+  TAP: { airline: 'TAP Air Portugal', country: 'Portugal', flag: '🇵🇹' },
+  SWR: { airline: 'Swiss', country: 'Switzerland', flag: '🇨🇭' },
+  AUA: { airline: 'Austrian Airlines', country: 'Austria', flag: '🇦🇹' },
 };
 
 // ─── ICAO Type → Readable Model Name ────────────────────────────────────────
@@ -100,7 +100,7 @@ const MODEL_NAMES: Record<string, string> = {
   S76: 'Sikorsky S-76', B06: 'Bell 206', B07: 'Bell 407',
   H60: 'Sikorsky Black Hawk', A109: 'AgustaWestland AW109',
   // Cargo
-  MD11:'McDonnell Douglas MD-11',
+  MD11: 'McDonnell Douglas MD-11',
   // Small GA
   C172: 'Cessna 172', C182: 'Cessna 182', C208: 'Cessna Caravan',
   C68A: 'Cessna Citation Latitude', P28A: 'Piper PA-28 Arrow',
@@ -192,30 +192,30 @@ interface Region {
 
 const REGIONS: Region[] = [
   // ── Americas ──────────────────────────────────────────────────
-  { name: 'US Central',   lat: 39.0,  lon: -95.0,  minExpected: 30 },
-  { name: 'US East',      lat: 33.0,  lon: -80.0,  minExpected: 25 },
-  { name: 'US West',      lat: 37.0,  lon: -122.0, minExpected: 20 },
+  { name: 'US Central', lat: 39.0, lon: -95.0, minExpected: 30 },
+  { name: 'US East', lat: 33.0, lon: -80.0, minExpected: 25 },
+  { name: 'US West', lat: 37.0, lon: -122.0, minExpected: 20 },
   // ── Europe ────────────────────────────────────────────────────
-  { name: 'Europe',       lat: 50.0,  lon:  10.0,  minExpected: 40 },
+  { name: 'Europe', lat: 50.0, lon: 10.0, minExpected: 40 },
   // ── Middle East ───────────────────────────────────────────────
-  { name: 'Middle East',  lat: 26.0,  lon:  45.0,  minExpected: 10 },
-  { name: 'Gulf/UAE',     lat: 25.2,  lon:  55.3,  minExpected: 8  },
+  { name: 'Middle East', lat: 26.0, lon: 45.0, minExpected: 10 },
+  { name: 'Gulf/UAE', lat: 25.2, lon: 55.3, minExpected: 8 },
   // ── India / South Asia (dense coverage) ───────────────────────
-  { name: 'North India',  lat: 28.6,  lon:  77.1,  minExpected: 8  },  // Delhi/NCR hub
-  { name: 'West India',   lat: 19.1,  lon:  72.9,  minExpected: 8  },  // Mumbai hub
-  { name: 'South India',  lat: 13.0,  lon:  80.2,  minExpected: 6  },  // Chennai/Bangalore
-  { name: 'East India',   lat: 22.6,  lon:  88.4,  minExpected: 4  },  // Kolkata
-  { name: 'Central Asia',  lat: 33.0, lon:  65.0,  minExpected: 3  },  // Afghanistan/Pakistan corridor
+  { name: 'North India', lat: 28.6, lon: 77.1, minExpected: 8 },  // Delhi/NCR hub
+  { name: 'West India', lat: 19.1, lon: 72.9, minExpected: 8 },  // Mumbai hub
+  { name: 'South India', lat: 13.0, lon: 80.2, minExpected: 6 },  // Chennai/Bangalore
+  { name: 'East India', lat: 22.6, lon: 88.4, minExpected: 4 },  // Kolkata
+  { name: 'Central Asia', lat: 33.0, lon: 65.0, minExpected: 3 },  // Afghanistan/Pakistan corridor
   // ── East Asia ─────────────────────────────────────────────────
-  { name: 'China East',   lat: 31.2,  lon: 121.5,  minExpected: 15 },  // Shanghai hub
-  { name: 'China North',  lat: 39.9,  lon: 116.4,  minExpected: 12 },  // Beijing hub
-  { name: 'Japan/Korea',  lat: 35.7,  lon: 139.7,  minExpected: 10 },  // Tokyo hub
+  { name: 'China East', lat: 31.2, lon: 121.5, minExpected: 15 },  // Shanghai hub
+  { name: 'China North', lat: 39.9, lon: 116.4, minExpected: 12 },  // Beijing hub
+  { name: 'Japan/Korea', lat: 35.7, lon: 139.7, minExpected: 10 },  // Tokyo hub
   // ── Southeast Asia ────────────────────────────────────────────
-  { name: 'SE Asia North', lat: 13.7, lon: 100.5,  minExpected: 8  },  // Bangkok hub
-  { name: 'SE Asia South', lat: 1.35, lon: 103.8,  minExpected: 10 },  // Singapore/KL hub
-  { name: 'Indonesia',     lat: -6.2, lon: 106.8,  minExpected: 5  },  // Jakarta
+  { name: 'SE Asia North', lat: 13.7, lon: 100.5, minExpected: 8 },  // Bangkok hub
+  { name: 'SE Asia South', lat: 1.35, lon: 103.8, minExpected: 10 },  // Singapore/KL hub
+  { name: 'Indonesia', lat: -6.2, lon: 106.8, minExpected: 5 },  // Jakarta
   // ── Oceania ───────────────────────────────────────────────────
-  { name: 'Australia',    lat: -25.0, lon:  135.0, minExpected: 5  },
+  { name: 'Australia', lat: -25.0, lon: 135.0, minExpected: 5 },
 ];
 
 const QUERY_DIST = 500; // nautical miles radius per query
@@ -277,19 +277,19 @@ function mapAdsbToFlight(ac: any): Flight | null {
 
 function mapOpenSkyToFlight(state: any[]): Flight | null {
   const [hex, callsign, origin_country, time_pos, last_contact, lon, lat, baro_alt, on_ground, velocity, true_track, vertical_rate, sensors, geo_alt, squawk, spi, position_source, category] = state;
-  
+
   if (lat == null || lon == null || true_track == null) return null;
 
   const csign = (callsign || hex || '').trim();
   const meta = lookupAirline(csign);
-  
+
   // Category mapping:
   let aircraftType: AircraftType = 'jet';
   if (category === 7 || category === 8) aircraftType = 'helicopter';
   else if (category === 4 || category === 6) aircraftType = 'widebody';
   else if (category === 2 || category === 3) aircraftType = 'light';
   else aircraftType = 'jet';
-  
+
   const isEmergency = squawk ? EMERGENCY_SQUAWKS.has(squawk) : false;
 
   return {
@@ -316,7 +316,7 @@ function mapOpenSkyToFlight(state: any[]): Flight | null {
 async function fetchOpenSkyAPI(): Promise<Flight[]> {
   const username = process.env.OPENSKY_USERNAME;
   const password = process.env.OPENSKY_PASSWORD;
-  
+
   const headers: HeadersInit = {};
   if (username && password) {
     headers['Authorization'] = 'Basic ' + Buffer.from(username + ':' + password).toString('base64');
@@ -337,10 +337,10 @@ async function fetchOpenSkyAPI(): Promise<Flight[]> {
   const data = await res.json();
   const states = data.states || [];
   const flights: Flight[] = [];
-  
+
   for (const ac of states) {
-     const flight = mapOpenSkyToFlight(ac);
-     if (flight) flights.push(flight);
+    const flight = mapOpenSkyToFlight(ac);
+    if (flight) flights.push(flight);
   }
   return flights;
 }
@@ -517,16 +517,16 @@ let mockFlights: any[] | null = null;
 let lastMockUpdate = Date.now();
 
 const MOCK_CALLSIGNS = ['AAL', 'DAL', 'UAL', 'BAW', 'SWA', 'AFR', 'DLH', 'FDX', 'UPS', 'JBU',
-                        'UAE', 'QTR', 'THY', 'KAL', 'ANA', 'SIA', 'ETH', 'AIC', 'RYR', 'EZY'];
+  'UAE', 'QTR', 'THY', 'KAL', 'ANA', 'SIA', 'ETH', 'AIC', 'RYR', 'EZY'];
 const MOCK_TYPES = ['B738', 'A320', 'B77W', 'A388', 'AS50', 'B744', 'E190', 'A321', 'R44', 'B789'];
 const MOCK_REGIONS = [
   { lat: 39.8, lon: -98.5, span: 18 },
-  { lat: 48.8, lon: 2.3,   span: 12 },
-  { lat: 34.0, lon: -118.2,span: 10 },
+  { lat: 48.8, lon: 2.3, span: 12 },
+  { lat: 34.0, lon: -118.2, span: 10 },
   { lat: 40.7, lon: -74.0, span: 10 },
-  { lat: 25.0, lon: 45.0,  span: 15 },
+  { lat: 25.0, lon: 45.0, span: 15 },
   { lat: 35.0, lon: 110.0, span: 15 },
-  { lat: 20.0, lon: 78.0,  span: 12 },
+  { lat: 20.0, lon: 78.0, span: 12 },
 ];
 const AIRCRAFT_TYPES: AircraftType[] = ['jet', 'widebody', 'helicopter', 'cargo', 'jet', 'jet'];
 
@@ -547,8 +547,8 @@ function getMockFlights(): Flight[] {
       const typeCode = MOCK_TYPES[i % MOCK_TYPES.length];
       const aircraftType = AIRCRAFT_TYPES[i % AIRCRAFT_TYPES.length];
       const velocity = aircraftType === 'helicopter' ? 80 + Math.random() * 60
-                     : aircraftType === 'cargo'      ? 400 + Math.random() * 60
-                     : 380 + Math.random() * 120; // knots
+        : aircraftType === 'cargo' ? 400 + Math.random() * 60
+          : 380 + Math.random() * 120; // knots
       const lat = center.lat + (Math.random() - 0.5) * center.span;
       const lon = center.lon + (Math.random() - 0.5) * center.span;
       const altitude = aircraftType === 'helicopter'
@@ -588,7 +588,9 @@ export async function GET(request: NextRequest) {
   const now = Date.now();
 
   // Serve fresh cache
+  console.log("just before")
   if (cachedFlights && (now - lastFetchTime) < CACHE_TTL_MS) {
+    console.log("in the cash")
     return NextResponse.json(cachedFlights);
   }
 

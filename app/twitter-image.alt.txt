@@ -1,1 +1,0 @@
-AeroTrack — Real-Time Global Flight Tracker by Vishal Raghav. Track thousands of live flights on an interactive map.

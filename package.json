@@ -1,7 +1,29 @@
 {
   "name": "aerotrack",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
+  "description": "AeroTrack — Real-time global flight tracker with interactive 3D map. Built with Next.js 16, deck.gl, and MapLibre GL by Vishal Raghav.",
+  "author": "Vishal Raghav <vishalraghav0290@gmail.com> (https://github.com/vishalraghav0290)",
+  "license": "MIT",
+  "homepage": "https://aerotrack.live",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vishalraghav0290/FlyingAero.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vishalraghav0290/FlyingAero/issues"
+  },
+  "keywords": [
+    "flight-tracker",
+    "real-time",
+    "adsb",
+    "aviation",
+    "deck-gl",
+    "maplibre",
+    "nextjs",
+    "typescript",
+    "vishal-raghav"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",

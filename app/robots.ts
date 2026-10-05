@@ -8,7 +8,20 @@ export default function robots(): MetadataRoute.Robots {
         allow: '/',
         disallow: ['/api/'],
       },
+      {
+        // Explicitly allow Googlebot maximum access
+        userAgent: 'Googlebot',
+        allow: '/',
+        disallow: ['/api/'],
+      },
+      {
+        // Bing
+        userAgent: 'Bingbot',
+        allow: '/',
+        disallow: ['/api/'],
+      },
     ],
-    sitemap: 'https://aerotrack.live/sitemap.xml',
+    sitemap: 'https://aerotrack.vishalraghav.dev/sitemap.xml',
+    host: 'https://aerotrack.vishalraghav.dev',
   };
 }

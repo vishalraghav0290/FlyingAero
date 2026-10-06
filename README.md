@@ -1,6 +1,8 @@
-# SkyRadar
+# AeroTrack
 
-A Flightradar24-style live flight tracker built with Next.js, MapLibre GL and deck.gl, using free ADS-B data from [adsb.lol](https://adsb.lol) and [adsb.fi](https://adsb.fi).
+A Flightradar24-style live flight tracker by [Vishal Raghav](https://github.com/vishalraghav0290), built with Next.js, TypeScript (strict), MapLibre GL and deck.gl, using free ADS-B data from [adsb.lol](https://adsb.lol) and [adsb.fi](https://adsb.fi).
+
+Live at [areotrack.vishalraghav.dev](https://areotrack.vishalraghav.dev).
 
 ## Features
 
@@ -13,7 +15,7 @@ A Flightradar24-style live flight tracker built with Next.js, MapLibre GL and de
 
 ## Getting started
 
-Requires Node.js 20.9 or later. No API keys are needed with the default ADS-B source.
+Requires Node.js 22.18 or later. No API keys are needed with the default ADS-B source.
 
 ```bash
 npm install
@@ -25,7 +27,7 @@ OpenSky is optional: copy `.env.example` to `.env`, add `OPENSKY_CLIENT_ID` and 
 
 Check your credentials with `npm run check:opensky`.
 
-For production, run `npm run build` and then `npm start`.
+For production, run `npm run build` and then `npm start`. Type-check with `npx tsc --noEmit`. Requires Node.js 22.18+ because the scripts in `scripts/` run as TypeScript directly.
 
 ## Deployment notes
 

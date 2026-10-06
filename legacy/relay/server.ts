@@ -1,0 +1,119 @@
+/**
+ * AeroTrack OpenSky relay: a tiny Node server for Koyeb / Render (no dependencies).
+ *
+ * OpenSky drops connections from Vercel and Cloudflare, so the app sends its OpenSky calls
+ * here instead. Not an open proxy:
+ *  - GET  /probe           public: checks whether OpenSky answers from this host (cached 30 s)
+ *  - GET  /health          public: liveness check for the platform
+ *  - POST /token           -> OpenSky OAuth2 token endpoint       (needs X-Relay-Key)
+ *  - GET  /api/states/all  -> OpenSky /api/states/all             (needs X-Relay-Key)
+ *  - GET  /api/tracks/all  -> OpenSky /api/tracks/all             (needs X-Relay-Key)
+ * Anything else returns 404. The OpenSky credentials stay with the app; they only pass
+ * through in the token request and are never logged.
+ */
+import http from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
+
+/** fetch() rejects with an Error whose `cause` carries the network error code (ECONNRESET, ...). */
+type FetchError = Error & { cause?: { code?: string } };
+
+const PORT = Number(process.env.PORT) || 8000;
+const KEY = process.env.RELAY_KEY || '';
+const TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
+const API = 'https://opensky-network.org';
+const API_PATHS = new Set(['/api/states/all', '/api/tracks/all']);
+const FORWARD_REQ = ['authorization', 'content-type', 'accept'] as const;
+const FORWARD_RES = ['content-type', 'x-rate-limit-remaining', 'x-rate-limit-retry-after-seconds'];
+const MAX_BODY = 8 * 1024;
+
+const send = (res: ServerResponse, status: number, body: string, type = 'text/plain'): void => {
+  res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store' });
+  res.end(body);
+};
+
+function keyOk(req: IncomingMessage): boolean {
+  if (!KEY) return false;
+  const a = Buffer.from(String(req.headers['x-relay-key'] || ''));
+  const b = Buffer.from(KEY);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+let probeCache: { at: number; body: string } | null = null;
+async function probe(): Promise<string> {
+  if (probeCache && Date.now() - probeCache.at < 30_000) return probeCache.body;
+  const targets = {
+    'opensky-auth': TOKEN_URL.replace('/protocol/openid-connect/token', '/.well-known/openid-configuration'),
+    'opensky-api': `${API}/api/states/all?lamin=28&lomin=77&lamax=28.5&lomax=77.5`,
+    'control (example.com)': 'https://example.com/',
+  };
+  const out: Record<string, string | boolean> = { host: process.env.RENDER ? 'render' : process.env.KOYEB_APP_NAME ? 'koyeb' : 'other', keyConfigured: Boolean(KEY) };
+  await Promise.all(
+    Object.entries(targets).map(async ([name, url]) => {
+      const t0 = Date.now();
+      try {
+        const r = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+        await r.arrayBuffer();
+        out[name] = `HTTP ${r.status} in ${Date.now() - t0} ms`;
+      } catch (e) {
+        const err = e as FetchError;
+        out[name] = `FAILED after ${Date.now() - t0} ms: ${err.cause?.code || err.name}`;
+      }
+    }),
+  );
+  probeCache = { at: Date.now(), body: JSON.stringify(out, null, 2) };
+  return probeCache.body;
+}
+
+function readBody(req: IncomingMessage) {
+  return new Promise<Buffer<ArrayBuffer>>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (c: Buffer) => {
+      size += c.length;
+      if (size > MAX_BODY) reject(new Error('body too large'));
+      else chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+const server = http.createServer(async (req, res) => {
+  // req.url is always set for requests received by an http.Server
+  const url = new URL(req.url as string, 'http://relay');
+  try {
+    if (req.method === 'GET' && url.pathname === '/health') return send(res, 200, 'ok');
+    if (req.method === 'GET' && url.pathname === '/probe') return send(res, 200, await probe(), 'application/json');
+
+    let target: string;
+    if (req.method === 'POST' && url.pathname === '/token') target = TOKEN_URL;
+    else if (req.method === 'GET' && API_PATHS.has(url.pathname)) target = API + url.pathname + url.search;
+    else return send(res, 404, 'Not found');
+    if (!keyOk(req)) return send(res, KEY ? 403 : 503, KEY ? 'Forbidden' : 'RELAY_KEY not configured');
+
+    const headers: Record<string, string> = {};
+    for (const h of FORWARD_REQ) {
+      const v = req.headers[h];
+      if (v) headers[h] = v;
+    }
+    const upstream = await fetch(target, {
+      method: req.method,
+      headers,
+      body: req.method === 'POST' ? await readBody(req) : undefined,
+      signal: AbortSignal.timeout(25_000),
+    });
+    const out: Record<string, string> = { 'cache-control': 'no-store' };
+    for (const h of FORWARD_RES) {
+      const v = upstream.headers.get(h);
+      if (v) out[h] = v;
+    }
+    res.writeHead(upstream.status, out);
+    res.end(Buffer.from(await upstream.arrayBuffer()));
+  } catch (e) {
+    const err = e as FetchError;
+    send(res, 502, `Upstream error: ${err.cause?.code || err.message}`);
+  }
+});
+
+server.listen(PORT, '0.0.0.0', () => console.log(`OpenSky relay listening on :${PORT}`));

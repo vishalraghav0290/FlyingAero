@@ -251,6 +251,66 @@ button {
   background: var(--red-500);
 }
 
+/* ---------- Slow data-source notice ---------- */
+.slow-notice {
+  position: absolute;
+  left: 50%;
+  bottom: 4.25rem;
+  transform: translateX(-50%);
+  z-index: 32;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: min(34rem, calc(100vw - 1.5rem));
+  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: rgb(57 57 57 / 0.95);
+  border-left: 3px solid var(--yellow-500);
+  box-shadow: var(--shadow-default);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.slow-notice[hidden] {
+  display: none;
+}
+
+.slow-notice > svg {
+  flex: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  fill: none;
+  stroke: var(--yellow-500);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.slow-notice button {
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  cursor: pointer;
+}
+
+.slow-notice button:hover {
+  background: var(--gray-1200);
+}
+
+.slow-notice button svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
 /* ---------- Toast ---------- */
 .toast {
   position: absolute;

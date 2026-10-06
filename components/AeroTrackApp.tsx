@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect } from 'react';
+import type { SVGProps } from 'react';
 
-const PlaneIcon = (props) => (
+const PlaneIcon = (props: SVGProps<SVGSVGElement>) => (
   <svg viewBox="0 0 24 24" aria-hidden="true" {...props}>
     <path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z" />
   </svg>
@@ -17,14 +18,14 @@ const PlaneIcon = (props) => (
  * of aircraft at up to 60 fps through React state would be far slower.
  * The engine is loaded in an effect, so none of it runs during server rendering.
  */
-export default function SkyRadarApp() {
+export default function AeroTrackApp() {
   useEffect(() => {
     let cancelled = false;
     import('@/lib/client/main')
       .then((m) => m.start())
       .catch((err) => {
         if (cancelled) return;
-        console.error('SkyRadar failed to start:', err);
+        console.error('AeroTrack failed to start:', err);
         const toast = document.getElementById('toast');
         if (toast) {
           toast.textContent = 'The map could not start. Your browser may not support WebGL.';
@@ -43,7 +44,7 @@ export default function SkyRadarApp() {
 
       <header className="header" aria-label="Site header">
         <div className="header__gradient" aria-hidden="true" />
-        <a className="header__logo" href="/" aria-label="SkyRadar home">
+        <a className="header__logo" href="/" aria-label="AeroTrack home">
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
             <circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
             <circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" strokeWidth="1.2" opacity=".6" />
@@ -51,9 +52,13 @@ export default function SkyRadarApp() {
             <circle cx="12" cy="12" r="1.6" fill="currentColor" />
           </svg>
           <span className="header__wordmark">
-            sky<strong>radar</strong>
+            aero<strong>track</strong>
           </span>
         </a>
+        <a className="header__byline" href="/about">
+          by Vishal Raghav
+        </a>
+        <h1 className="visually-hidden">AeroTrack: live flight tracker by Vishal Raghav</h1>
         <div className="header__right">
           <span className="clock" aria-label="Current UTC time">
             <time id="utc-clock">--:--</time>
@@ -145,8 +150,8 @@ export default function SkyRadarApp() {
             className="route__bar"
             id="route-bar"
             role="progressbar"
-            aria-valuemin="0"
-            aria-valuemax="100"
+            aria-valuemin={0}
+            aria-valuemax={100}
             aria-label="Flight progress"
           >
             <div className="route__fill" id="route-fill" />

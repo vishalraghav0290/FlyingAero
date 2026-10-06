@@ -97,6 +97,76 @@ button {
   font-weight: 700;
 }
 
+.header__byline {
+  pointer-events: auto;
+  margin-left: 0.6rem;
+  padding-top: 0.2rem;
+  font: 400 12px/1 var(--font-base);
+  color: var(--gray-700);
+  text-decoration: none;
+}
+
+.header__byline:hover {
+  color: var(--yellow-500);
+  text-decoration: underline;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- About page (normal scrolling document over the map's fixed body) ---------- */
+.about {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  background: var(--gray-1500);
+}
+
+.about__main {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 3rem 1.25rem 4rem;
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--gray-700);
+}
+
+.about h1 {
+  margin: 0.5rem 0 0.25rem;
+  font: 700 40px/1.15 var(--font-alt);
+  color: #fff;
+}
+
+.about h2 {
+  margin: 2rem 0 0.5rem;
+  font: 700 22px/1.3 var(--font-alt);
+  color: var(--yellow-500);
+}
+
+.about__lead {
+  margin: 0;
+  font-size: 18px;
+  color: #fff;
+}
+
+.about__eyebrow a,
+.about a {
+  color: var(--yellow-500);
+}
+
+.about__links {
+  padding-left: 1.2rem;
+}
+
 .header__right {
   position: absolute;
   right: 1rem;

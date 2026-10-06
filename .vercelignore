@@ -10,8 +10,7 @@
 
 # local-only folders
 .vercel
-worker
-relay
+legacy
 .wrangler
 node_modules
 .next

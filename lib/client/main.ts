@@ -14,6 +14,7 @@ import { theme, themeById, buildStyle } from './mapstyles.ts';
 import { initStyleMenu, applyBrightness } from './stylemenu.ts';
 import { settings } from './settings.ts';
 import { NavaidLayer, formatFrequency } from './navaids.ts';
+import { runLoader } from './loader.ts';
 import type { PickingInfo } from '@deck.gl/core';
 import type { Aircraft, FeedStatus, ToastKind } from './types.ts';
 
@@ -341,7 +342,11 @@ async function run(): Promise<void> {
   updateClock();
   setInterval(updateClock, 10_000);
 
-  map.once('load', () => feed.start());
+  // The feed starts as soon as the map loads; the loading screen covers it until India is in,
+  // then one refresh pulls everything the warm-up loaded.
+  const mapReady = new Promise<void>((resolve) => map.once('load', () => resolve()));
+  mapReady.then(() => feed.start());
+  runLoader({ mapReady, onDone: () => mapReady.then(() => feed.refresh()) });
   // Every style load (first load and each switch) needs India's borders applied again.
   map.on('style.load', () => applyIndiaView(map));
   applyBrightness(map, settings.brightness);

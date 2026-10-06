@@ -1196,3 +1196,121 @@ body.has-panel .statusbar {
     transition: none;
   }
 }
+
+/* ---------- Initial loading screen (lib/client/loader.ts) ---------- */
+.loader {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: radial-gradient(circle at 50% 40%, rgb(48 48 48 / 0.92), rgb(24 24 24 / 0.97));
+  backdrop-filter: blur(4px);
+  transition: opacity 0.4s ease;
+}
+
+.loader[hidden] {
+  display: none;
+}
+
+.loader[data-state='done'] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loader__card {
+  width: min(22rem, 100%);
+  text-align: center;
+}
+
+.loader__radar {
+  color: var(--yellow-500);
+}
+
+.loader__sweep {
+  transform-origin: 12px 12px;
+  animation: loader-sweep 1.6s linear infinite;
+}
+
+@keyframes loader-sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loader__brand {
+  margin: 0.75rem 0 1.25rem;
+  font: 400 26px/1 var(--font-alt);
+  color: #fff;
+}
+
+.loader__brand strong {
+  color: var(--yellow-500);
+  font-weight: 700;
+}
+
+.loader__brand span {
+  margin-left: 0.3rem;
+  font: 400 13px/1 var(--font-base);
+  color: var(--gray-700);
+}
+
+.loader__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.loader__sub {
+  margin: 0.25rem 0 1rem;
+  color: var(--gray-700);
+}
+
+.loader__bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--gray-1300);
+  overflow: hidden;
+}
+
+.loader__fill {
+  width: 0;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--yellow-500);
+  transition: width 0.5s ease;
+}
+
+.loader__count {
+  margin: 0.6rem 0 1.25rem;
+  font-size: 13px;
+  color: var(--gray-700);
+  font-variant-numeric: tabular-nums;
+}
+
+.loader__skip {
+  padding: 0.45rem 1rem;
+  border: 1px solid var(--gray-1000);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--gray-700);
+  cursor: pointer;
+}
+
+.loader__skip:hover {
+  border-color: var(--yellow-500);
+  color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loader,
+  .loader__fill {
+    transition: none;
+  }
+  .loader__sweep {
+    animation: none;
+  }
+}

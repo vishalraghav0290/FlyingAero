@@ -11,9 +11,11 @@ import { AUTHOR, SITE, SITE_URL } from '@/lib/site';
 
 const TITLE = `${SITE.name} by ${AUTHOR.name} · ${SITE.tagline}`;
 
-// Search-console verification tokens, set as Vercel env vars once the site is registered.
+// Search-console verification tokens. They are public (they appear in the page HTML), so the
+// Google token for areotrack.vishalraghav.dev is the default; env vars override per deployment.
+const GOOGLE_VERIFICATION = process.env.GOOGLE_SITE_VERIFICATION || 'NFN-FciLb_bKsttisPLF0bAyfPFPHZ3BIY2pKW4RVl4';
 const verification: Metadata['verification'] = {
-  ...(process.env.GOOGLE_SITE_VERIFICATION ? { google: process.env.GOOGLE_SITE_VERIFICATION } : {}),
+  google: GOOGLE_VERIFICATION,
   ...(process.env.BING_SITE_VERIFICATION ? { other: { 'msvalidate.01': process.env.BING_SITE_VERIFICATION } } : {}),
 };
 

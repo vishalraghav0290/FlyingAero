@@ -11,7 +11,6 @@ node_modules/
 # local-only / generated
 _reference/
 _legacy-express/
-data/
 public/vendor/
 .vercel/
 .wrangler/

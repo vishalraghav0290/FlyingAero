@@ -148,6 +148,8 @@ export class Feed {
         credits: body.credits,
         intervalMs: body.intervalMs,
         source: body.source,
+        sourceKind: body.sourceKind,
+        count: body.count,
         tookMs: Date.now() - this.lastFetchAt,
         loading: body.area?.loading ?? null,
       });

@@ -214,6 +214,19 @@ export class Selection {
     this.render();
   }
 
+  /** The data source changed: the trail on screen came from the other one, so load it again. */
+  reloadTrail(): void {
+    const id = this.id;
+    if (!id) return;
+    this.controller?.abort();
+    this.trail.clear();
+    this.trail.icao = id;
+    this.trail.loading = true;
+    this._load(id);
+    this._updatePanel();
+    this.render();
+  }
+
   async _load(id: string): Promise<void> {
     const controller = new AbortController();
     this.controller = controller;

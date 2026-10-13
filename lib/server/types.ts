@@ -86,6 +86,8 @@ export interface StatesResult {
   states: StateVector[] | null;
   coverage?: Coverage;
   sources?: string[];
+  /** ADS-B: providers behind this answer, e.g. "adsb.lol + adsb.fi". */
+  provider?: string;
 }
 
 /** Track waypoint: [time, lat, lon, baroAltM, trueTrack, onGround] (OpenSky /tracks format). */

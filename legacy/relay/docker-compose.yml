@@ -1,0 +1,77 @@
+# OpenSky relay on the home mini PC, exposed only through a Cloudflare Tunnel sidecar.
+#
+#  - No `ports:` anywhere: nothing listens on the host. cloudflared reaches the app as
+#    http://relay:8000 over this project's private Docker network.
+#  - restart: unless-stopped on both containers (the host watchdog keeps dockerd alive).
+#  - Secrets are files mounted at /run/secrets, not environment variables, so they don't
+#    appear in `docker inspect`, `ps`, or compose logs.
+#
+# Setup on the server (once):
+#   1. Zero Trust -> Networks -> Tunnels -> Create tunnel "opensky-relay", copy its token.
+#      Public hostname: opensky-relay.yagyagoel.com -> Service HTTP -> relay:8000
+#   2. mkdir -m 700 secrets
+#      (umask 077; printf '%s' '<tunnel token>' > secrets/tunnel_token)
+#      (umask 077; openssl rand -hex 24 > secrets/relay_key)
+#   3. docker compose up -d
+services:
+  relay:
+    image: node:22-alpine
+    container_name: opensky-relay
+    working_dir: /app
+    command: ["node", "server.ts"]
+    user: "1000:1000" # owner of the secret files (0600)
+    volumes:
+      - ./server.ts:/app/server.ts:ro
+      - ./package.json:/app/package.json:ro
+    environment:
+      PORT: "8000"
+      RELAY_KEY_FILE: /run/secrets/relay_key
+      # seconds an OpenSky answer is reused (0 = off). 5 matches OpenSky's own time resolution.
+      CACHE_TTL_S: "5"
+    secrets: [relay_key]
+    networks: [relay-net]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    pids_limit: 100
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: opensky-relay-tunnel
+    command: ["tunnel", "--no-autoupdate", "run"]
+    user: "1000:1000"
+    environment:
+      TUNNEL_TOKEN_FILE: /run/secrets/tunnel_token
+      # QUIC is UDP; mobile-carrier NATs expire idle UDP mappings much faster than TCP.
+      # HTTP/2 over TCP 443 survives hotspot NAT timeouts better.
+      TUNNEL_TRANSPORT_PROTOCOL: http2
+    secrets: [tunnel_token]
+    networks: [relay-net]
+    depends_on:
+      relay:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 100
+
+networks:
+  relay-net:
+    driver: bridge
+
+secrets:
+  relay_key:
+    file: ./secrets/relay_key
+  tunnel_token:
+    file: ./secrets/tunnel_token

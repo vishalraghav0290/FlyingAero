@@ -1,16 +1,16 @@
 import type { NextRequest } from 'next/server';
-import { services, json, openSkyTrack, mergeTrail, ICAO24 } from '@/lib/server/services';
+import { services, json, sourceTrack, mergeTrail, ICAO24 } from '@/lib/server/services';
 
 export const dynamic = 'force-dynamic';
 
-/** Aircraft metadata + full trail (OpenSky track since take-off merged with live positions). */
+/** Aircraft metadata + full trail (track since take-off merged with live positions, one data source only). */
 export async function GET(request: NextRequest, { params }: { params: Promise<{ icao24: string }> }) {
   const icao24 = String((await params).icao24).toLowerCase();
   if (!ICAO24.test(icao24)) return json({ error: 'Invalid ICAO 24-bit address' }, { status: 400 });
   const { db, feed, airports, client } = services();
   const withTrail = new URL(request.url).searchParams.get('trail') !== '0';
-  const track = withTrail ? await openSkyTrack(icao24) : [];
-  const history = feed.getHistory(icao24);
+  const { kind, path: track } = withTrail ? await sourceTrack(icao24) : { kind: client.kind, path: [] };
+  const history = feed.getHistory(icao24, kind);
   const trail = mergeTrail(track, history);
   // Where the trail starts on (or just above) the ground, that airport is the real origin.
   const first = trail[0];
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     details: db.details(icao24),
     departedFrom,
     trail,
-    trailSources: { opensky: track.length, live: history.length },
+    trailSources: { source: kind, track: track.length, live: history.length },
     credits: { tracks: client.credits.tracks },
   }, { request });
 }

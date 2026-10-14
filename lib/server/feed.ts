@@ -13,7 +13,7 @@ import { OpenSkyError } from './opensky.ts';
 import { destination } from './geo.ts';
 import type { AircraftDb } from './aircraftDb.ts';
 import type { AppConfig, FeedConfig } from './config.ts';
-import type { SourceClient } from './source.ts';
+import type { SourceClient, SourceKind } from './source.ts';
 import type { BBox, ClientRow, Coverage, HistoryPoint, HttpError, StateVector } from './types.ts';
 import { errorMessage, errorRetryAfter, errorStatus } from './types.ts';
 
@@ -27,6 +27,8 @@ export interface AreaPlan {
 
 /** One cached upstream snapshot. */
 export interface FeedCacheEntry {
+  /** Which source produced this snapshot. Entries of different kinds are never mixed. */
+  kind: SourceKind;
   bbox: BBox | null;
   cost: number;
   fetchedAt: number;
@@ -170,8 +172,8 @@ export class FeedService {
   }
 
   /** Poll interval for an area of the given cost, slowed down when credits run low. */
-  intervalFor(plan: AreaPlan): number {
-    if (this.client.kind === 'adsb') return this.cfg.adsbIntervalMs;
+  intervalFor(plan: AreaPlan, kind: SourceKind = this.client.kind): number {
+    if (kind === 'adsb') return this.cfg.adsbIntervalMs;
     let ms = this.cfg.baseIntervalMs * plan.factor;
     const remaining = this.client.credits.states;
     if (remaining != null) {
@@ -182,33 +184,38 @@ export class FeedService {
     return Math.max(this.cfg.minIntervalMs, Math.round(ms));
   }
 
-  _findCached(vp: BBox | null, maxAgeMs: number): FeedCacheEntry | undefined {
+  /** Newest cached snapshot of kind that covers p. Other sources are never returned. */
+  _findCached(vp: BBox | null, maxAgeMs: number, kind: SourceKind): FeedCacheEntry | undefined {
     const now = Date.now();
     return this.cache
-      .filter((e) => now - e.fetchedAt <= maxAgeMs && contains(e.bbox, vp))
+      .filter((e) => e.kind === kind && now - e.fetchedAt <= maxAgeMs && contains(e.bbox, vp))
       .sort((a, b) => b.fetchedAt - a.fetchedAt)[0];
   }
 
   async _fetch(plan: AreaPlan): Promise<FeedCacheEntry> {
-    const key = plan.bbox ? Object.values(plan.bbox).join(',') : 'global';
+    // a snapshot is only shared by requests that use the same source
+    const key = `${this.client.kind}|${plan.bbox ? Object.values(plan.bbox).join(',') : 'global'}`;
     const running = this.inflight.get(key);
     if (running) return running;
 
     const p = (async (): Promise<FeedCacheEntry> => {
       this.lastUpstreamAt = Date.now();
       try {
-        const data = await this.client.getStates(plan.bbox ?? undefined);
+        // kind is where the data really came from (a failover can happen inside this call)
+        const { data, kind, name } = await this.client.getStates(plan.bbox ?? undefined);
         const entry: FeedCacheEntry = {
+          kind,
           bbox: plan.bbox,
-          cost: plan.cost,
+          cost: kind === 'opensky' ? plan.cost : 0,
           fetchedAt: Date.now(),
           time: data?.time ?? Math.floor(Date.now() / 1000),
-          states: this._prepare(data?.states ?? [], data?.time),
-          source: this.client.sourceName ?? 'OpenSky',
+          states: this._prepare(data?.states ?? [], data?.time, kind),
+          source: name,
           coverage: data?.coverage ?? null, // ADS-B: grid cells loaded / total
         };
-        // A global snapshot supersedes every regional one.
-        this.cache = [entry, ...this.cache.filter((e) => e.bbox && !contains(entry.bbox, e.bbox))]
+        // A global snapshot supersedes every regional one of the same source, and a snapshot
+        // from a new source replaces everything from the old one.
+        this.cache = [entry, ...this.cache.filter((e) => e.kind === kind && e.bbox && !contains(entry.bbox, e.bbox))]
           .slice(0, MAX_CACHE_ENTRIES);
         this.lastError = null;
         return entry;
@@ -227,9 +234,9 @@ export class FeedService {
     return p;
   }
 
-  /** Remember every real position we receive (trail source). */
-  _record(s: StateVector): void {
-    const id = s[S.icao24];
+  /** Remember every real position we receive (trail source), per data source. */
+  _record(s: StateVector, kind: SourceKind): void {
+    const id = `${kind}:${s[S.icao24]}`;
     let h = this.history.get(id);
     if (!h) this.history.set(id, (h = { points: [], seenAt: 0 }));
     h.seenAt = Date.now();
@@ -250,7 +257,7 @@ export class FeedService {
    * Drop unusable states, estimate stale airborne positions, attach aircraft metadata and
    * the silhouette. Returns rows in CLIENT_FIELDS order.
    */
-  _prepare(states: StateVector[], snapshotTime?: number): ClientRow[] {
+  _prepare(states: StateVector[], snapshotTime: number | undefined, kind: SourceKind): ClientRow[] {
     const out: ClientRow[] = [];
     const now = snapshotTime || Math.floor(Date.now() / 1000);
     for (const s of states) {
@@ -259,7 +266,7 @@ export class FeedService {
       const time0 = s[S.timePosition];
       if (lat0 == null || lon0 == null || time0 == null) continue;
       if (Math.abs(lat0) > 90 || Math.abs(lon0) > 180) continue;
-      this._record(s);
+      this._record(s, kind);
 
       const age = now - time0;
       let lat = lat0;
@@ -319,22 +326,25 @@ export class FeedService {
    * Looks in every cached snapshot first; otherwise asks OpenSky for that one aircraft
    * (1 credit), at most once per poll interval.
    */
-  async _selected(icao24: string, intervalMs: number): Promise<ClientRow | null> {
+  async _selected(icao24: string, intervalMs: number, kind: SourceKind): Promise<ClientRow | null> {
     const now = Date.now();
     for (const e of this.cache) {
-      if (now - e.fetchedAt > intervalMs) continue;
+      if (e.kind !== kind || now - e.fetchedAt > intervalMs) continue;
       const row = e.states.find((s) => s[F.icao24] === icao24);
       if (row) return row;
     }
-    const last = this.selectedCache.get(icao24);
+    const cacheKey = `${kind}:${icao24}`;
+    const last = this.selectedCache.get(cacheKey);
     // 1 credit per lookup: refresh an off-screen selection at most every 30 s (the browser
     // keeps animating it in between).
     if (last && now - last.at < Math.max(intervalMs, 30_000)) return last.row;
     if (now < this.blockedUntil) return last?.row ?? null;
     try {
-      const data = await this.client.getStatesByIcao([icao24]);
-      const row = this._prepare(data?.states ?? [], data?.time)[0] ?? null;
-      this.selectedCache.set(icao24, { at: now, row });
+      const res = await this.client.getStatesByIcao([icao24]);
+      // the source changed under us: this row doesn't belong with the snapshot being served
+      if (res.kind !== kind) return null;
+      const row = this._prepare(res.data?.states ?? [], res.data?.time, kind)[0] ?? null;
+      this.selectedCache.set(cacheKey, { at: now, row });
       if (this.selectedCache.size > 20) {
         const oldest = this.selectedCache.keys().next().value;
         if (oldest !== undefined) this.selectedCache.delete(oldest);
@@ -346,8 +356,8 @@ export class FeedService {
   }
 
   /** Recorded positions for one aircraft: [[t, lat, lon, altM, track, onGround, velocity]] */
-  getHistory(icao24: string): HistoryPoint[] {
-    return this.history.get(icao24)?.points ?? [];
+  getHistory(icao24: string, kind: SourceKind = this.client.kind): HistoryPoint[] {
+    return this.history.get(`${kind}:${icao24}`)?.points ?? [];
   }
 
   /**
@@ -355,14 +365,17 @@ export class FeedService {
    * Returns the response body for /api/states.
    */
   async getStates(viewport: BBox | null, selectedIcao: string | null = null) {
-    const adsb = this.client.kind === 'adsb';
+    // The source is read once. Cached snapshots, fallbacks and the selected aircraft below
+    // all come from this same source, so OpenSky and ADS-B data are never mixed.
+    const wanted = this.client.kind;
+    const adsb = wanted === 'adsb';
     const plan = adsb ? planAdsb(viewport) : planArea(viewport);
     const vp = viewport;
-    const intervalMs = this.intervalFor(plan);
+    const wantedIntervalMs = this.intervalFor(plan, wanted);
     const now = Date.now();
 
     // ADS-B: the client answers from its own per-cell cache instantly, so always ask it
-    let entry = adsb ? null : this._findCached(vp, intervalMs - 250);
+    let entry = adsb ? null : this._findCached(vp, wantedIntervalMs - 250, wanted);
     let stale = false;
     let error: string | null = null;
 
@@ -370,7 +383,7 @@ export class FeedService {
       const blocked = now < this.blockedUntil;
       // the ADS-B client paces its own requests per provider
       const tooSoon = !adsb && now - this.lastUpstreamAt < MIN_UPSTREAM_GAP_MS;
-      const fallback = this._findCached(vp, 120_000);
+      const fallback = this._findCached(vp, 120_000, wanted);
       if (blocked || (tooSoon && fallback)) {
         entry = fallback;
         stale = true;
@@ -394,6 +407,9 @@ export class FeedService {
     // Rate-limited with no cached fallback leaves entry unset; as before, that throws below
     // (a TypeError the route turns into a 502).
     const snap = entry as FeedCacheEntry;
+    // A failover can happen inside the fetch, so the snapshot's own source is authoritative.
+    const snapAdsb = snap.kind === 'adsb';
+    const intervalMs = snap.kind === wanted ? wantedIntervalMs : this.intervalFor(plan, snap.kind);
 
     let states = vp
       ? snap.states.filter(
@@ -401,7 +417,7 @@ export class FeedService {
         )
       : snap.states;
     if (selectedIcao && !states.some((s) => s[F.icao24] === selectedIcao)) {
-      const row = await this._selected(selectedIcao, intervalMs);
+      const row = await this._selected(selectedIcao, intervalMs, snap.kind);
       if (row) states = [...states, row]; // copy: never mutate a cached snapshot
     }
 
@@ -410,8 +426,8 @@ export class FeedService {
     let nextPollMs = Math.max(1000, Math.min(intervalMs, expiresIn + 300));
     if (blockedFor > 0) nextPollMs = Math.min(60_000, Math.max(nextPollMs, blockedFor));
     // a wide ADS-B view still filling in: come back sooner to pick up new cells
-    if (adsb && snap.coverage && snap.coverage.loaded < snap.coverage.cells) nextPollMs = 2500;
-    else if (adsb) nextPollMs = intervalMs;
+    if (snapAdsb && snap.coverage && snap.coverage.loaded < snap.coverage.cells) nextPollMs = 2500;
+    else if (snapAdsb) nextPollMs = intervalMs;
     return {
       now: Date.now(),
       snapshotTime: snap.time,
@@ -428,7 +444,11 @@ export class FeedService {
         coverage: snap.coverage ?? null,
       },
       source: snap.source,
-      credits: snap.source === 'OpenSky' ? { states: this.client.credits.states, daily: this.cfg.dailyCredits } : {},
+      /** Which kind of source produced this snapshot; the browser resets when it changes. */
+      sourceKind: snap.kind,
+      /** Auto mode on ADS-B: why OpenSky is being skipped and when it is retried. */
+      sourceNote: snap.kind === 'adsb' ? this.client.fallbackNote : null,
+      credits: snap.kind === 'opensky' ? { states: this.client.credits.states, daily: this.cfg.dailyCredits } : {},
       fields: CLIENT_FIELDS,
       count: states.length,
       states,

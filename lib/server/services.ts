@@ -5,6 +5,7 @@ import { gzipSync } from 'node:zlib';
 import { loadConfig, ROOT_DIR } from './config.ts';
 import { OpenSkyClient } from './opensky.ts';
 import { SourceClient } from './source.ts';
+import type { SourceKind } from './source.ts';
 import { setAirportDensity } from './adsb.ts';
 import { AircraftDb } from './aircraftDb.ts';
 import { FeedService } from './feed.ts';
@@ -43,7 +44,13 @@ function create(): Services {
   const config = loadConfig();
   // OpenSky with automatic ADS-B fallback (DATA_SOURCE=opensky|adsb|auto)
   const client = new SourceClient({ opensky: new OpenSkyClient(config.opensky), mode: config.feed.source });
-  console.log(`[aerotrack] Data source mode: ${client.mode}`);
+  const how = {
+    opensky: 'OpenSky only (no ADS-B fallback)',
+    adsb: 'ADS-B only (adsb.lol / adsb.fi); OpenSky is switched off by DATA_SOURCE',
+    auto: 'OpenSky first, ADS-B (adsb.lol / adsb.fi) when OpenSky fails',
+  }[client.mode];
+  const via = client.opensky.relay ? `via relay ${new URL(config.opensky.relayUrl).host}` : 'directly';
+  console.log(`[aerotrack] Data source mode: ${client.mode} = ${how}; OpenSky is called ${via}, credentials ${client.authenticated ? 'set' : 'NOT set'}`);
   const db = new AircraftDb();
   const t0 = Date.now();
   if (db.load()) console.log(`[aerotrack] Aircraft database: ${db.lines.size.toLocaleString()} aircraft (${Date.now() - t0} ms)`);
@@ -66,7 +73,7 @@ function create(): Services {
     airports,
     feed: new FeedService({ client, db, config }),
     routes: new RouteService(airports),
-    trackCache: new Map(), // icao24 -> { at, path }
+    trackCache: new Map(), // kind:icao24 -> { at, path }
     photoCache: new Map(), // icao24 -> { at, photos }
     fileCache: new Map(), // data file name -> string
     gzipCache: new Map(), // data file name -> gzipped Buffer
@@ -153,31 +160,34 @@ export function parseBbox(searchParams: URLSearchParams): BBox | null {
 
 const TRACK_TTL_MS = 5 * 60_000;
 
-/** OpenSky flight track (4 credits from the separate /tracks pool), cached per aircraft. */
-export async function openSkyTrack(icao24: string): Promise<TrackPoint[]> {
+/**
+ * Flight track from the active source only (OpenSky /tracks, 4 credits from a separate pool,
+ * or adsb.lol's trace), cached per aircraft and source. `kind` says which one it is.
+ */
+export async function sourceTrack(icao24: string): Promise<{ kind: SourceKind; path: TrackPoint[] }> {
   const { client, trackCache } = services();
-  const hit = trackCache.get(icao24);
-  if (hit && Date.now() - hit.at < TRACK_TTL_MS) return hit.path;
+  const kind = client.kind;
+  const hit = trackCache.get(`${kind}:${icao24}`);
+  if (hit && Date.now() - hit.at < TRACK_TTL_MS) return { kind, path: hit.path };
   try {
-    const t = await client.getTrack(icao24, 0);
-    const p = Array.isArray(t?.path) ? t.path : [];
-    trackCache.set(icao24, { at: Date.now(), path: p });
+    const res = await client.getTrack(icao24, 0);
+    const p = Array.isArray(res.track?.path) ? res.track.path : [];
+    trackCache.set(`${res.kind}:${icao24}`, { at: Date.now(), path: p });
     if (trackCache.size > 200) {
       const oldest = trackCache.keys().next().value;
       if (oldest !== undefined) trackCache.delete(oldest);
     }
-    return p;
+    return { kind: res.kind, path: p };
   } catch (err) {
     console.warn(`[aerotrack] Track ${icao24}: ${errorMessage(err)}`);
-    return hit?.path ?? [];
+    return { kind, path: hit?.path ?? [] };
   }
 }
-
 /**
- * Trail = OpenSky track waypoints (since take-off; compressed, so seconds to minutes apart)
- * merged with every position this server has seen.
+ * Trail = track waypoints from the active source (since take-off; compressed, so seconds to
+ * minutes apart) merged with every position this server has seen from that same source.
  * Rows: [t, lat, lon, altM, velocityMs, track, onGround, live]
- * live: 0 = OpenSky track waypoint, 1 = live position we received.
+ * live: 0 = track waypoint, 1 = live position we received.
  */
 export function mergeTrail(track: TrackPoint[], history: HistoryPoint[]): TrailRow[] {
   const rows = [

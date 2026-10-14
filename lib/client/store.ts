@@ -127,6 +127,15 @@ export class AircraftStore {
     this.ground = ground.sort(byAltitude);
   }
 
+  /** Forget every aircraft (the data source changed, so old positions and timestamps don't apply). */
+  reset(): void {
+    for (const id of this.aircraft.keys()) this.engine.delete(id);
+    this.aircraft = new Map();
+    this.air = [];
+    this.ground = [];
+    this.lost = [];
+  }
+
   /** Recompute every drawn position. */
   tick(): void {
     const now = this.now();

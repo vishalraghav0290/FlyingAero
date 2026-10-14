@@ -71,29 +71,8 @@ export interface AdsbStatesResult {
   time: number;
   states: AdsbState[];
   coverage: Coverage;
-}
-
-interface WarmRegion {
-  name: string;
-  bbox: BBox;
-  from: { lat: number; lon: number };
-  max: number;
-}
-
-interface WarmPlanRegion {
-  name: string;
-  cells: Cell[];
-}
-
-/** Body of /api/warmup: how much of India's warm-up region is loaded. */
-export interface IndiaProgress {
-  region: string;
-  /** Grid cells covering India. */
-  cells: number;
-  /** Cells with live data. */
-  loaded: number;
-  /** Distinct aircraft in the loaded cells. */
-  aircraft: number;
+  /** Providers that supplied the cells in this answer, e.g. "adsb.lol + adsb.fi". */
+  provider: string;
 }
 
 export interface WarmStatus {
@@ -179,76 +158,23 @@ export function cellsFor(bbox: BBox): CellsResult {
   const dist = (c: Cell): number => distanceNm(cLat, cLon, c.lat, c.lon);
   out.sort((a, b) => dist(a) - dist(b));
   if (out.length <= MAX_CELLS) return { cells: out, clipped: false };
-  // Too wide to refresh everything: follow the warm-up priority (India from Delhi
-  // outwards, around India, Dubai, Europe, US), then the busiest remaining cells.
-  // The order is kept: it's also the order cells get refreshed in.
-  const rank = priorityRank();
-  const prioritised = [...out].sort(
-    (a, b) =>
-      (rank.get(a.key) ?? Infinity) - (rank.get(b.key) ?? Infinity) ||
-      (density.get(b.key) ?? 0) - (density.get(a.key) ?? 0) ||
-      dist(a) - dist(b),
-  );
-  return { cells: prioritised.slice(0, MAX_CELLS), clipped: true, ordered: true };
+  // Too wide to refresh everything: keep the busiest cells (airport density), then order
+  // them from the middle of the view outwards. That order is also the refresh order, so the
+  // part of the map the user is looking at fills in first.
+  const busiest = [...out]
+    .sort((a, b) => (density.get(b.key) ?? 0) - (density.get(a.key) ?? 0) || dist(a) - dist(b))
+    .slice(0, MAX_CELLS)
+    .sort((a, b) => dist(a) - dist(b));
+  return { cells: busiest, clipped: true, ordered: true };
 }
 
-let rankCache: Map<string, number> | null = null;
-/** cell key -> position in the warm-up order (built once airport density is known). */
-function priorityRank(): Map<string, number> {
-  if (rankCache && rankCache.size) return rankCache;
-  const rank = new Map<string, number>();
-  rankCache = rank;
-  if (!density.size) return rank;
-  warmPlan().flatMap((r) => r.cells).forEach((c, i) => rank.set(c.key, i));
-  return rank;
-}
-
-/**
- * Regions kept warm in the background, so they show instantly when someone looks there.
- * The free APIs allow about one request per second each, so regions load one after
- * another: India from New Delhi outwards, then the area around India, Dubai, Europe, US.
- */
-const DELHI = { lat: 28.56, lon: 77.1 };
-const WARM_REGIONS: WarmRegion[] = [
-  // strict priority: a region only starts once everything before it is loaded
-  { name: 'India', bbox: { lamin: 6, lamax: 36, lomin: 66, lomax: 98 }, from: DELHI, max: 48 },
-  { name: 'Around India', bbox: { lamin: -5, lamax: 45, lomin: 45, lomax: 110 }, from: DELHI, max: 30 },
-  { name: 'Dubai / Gulf', bbox: { lamin: 22, lamax: 29, lomin: 49, lomax: 59 }, from: { lat: 25.25, lon: 55.36 }, max: 6 },
-  { name: 'Europe', bbox: { lamin: 36, lamax: 60, lomin: -10, lomax: 30 }, from: { lat: 50.03, lon: 8.57 }, max: 20 },
-  { name: 'United States', bbox: { lamin: 25, lamax: 49, lomin: -125, lomax: -67 }, from: { lat: 39.5, lon: -95 }, max: 24 },
-];
-// Warm cells nobody is looking at refresh less often, so the queue reaches later regions.
-// (Cells in someone's view refresh every CELL_STALE_MS regardless.)
+// Cells around the area people are viewing are kept warm in the background, so panning or
+// zooming out shows planes at once. The free APIs allow about one request per second each.
+const WARM_RADIUS_DEG = 11; // two cell-heights around the middle of the last view
+const WARM_MAX_CELLS = 24;
+// Warm cells nobody is looking at refresh less often than cells in someone's view
+// (those refresh every CELL_STALE_MS regardless).
 const WARM_STALE_MS = 90_000;
-
-function warmPlan(): WarmPlanRegion[] {
-  const seen = new Set<string>();
-  return WARM_REGIONS.map((r) => {
-    const all: Cell[] = [];
-    const r0 = Math.max(0, Math.floor((r.bbox.lamin + 90) / CELL_LAT));
-    const r1 = Math.floor((r.bbox.lamax + 90) / CELL_LAT);
-    for (let row = r0; row <= r1; row++) {
-      const { lat0, cLat, cols, width } = cellGeometry(row);
-      const c0 = Math.max(0, Math.floor((r.bbox.lomin + 180) / width));
-      const c1 = Math.min(cols - 1, Math.floor((r.bbox.lomax + 180) / width));
-      for (let col = c0; col <= c1; col++) {
-        const cLon = -180 + col * width + width / 2;
-        const nm = Math.min(250, Math.ceil(distanceNm(cLat, cLon, lat0 + CELL_LAT, cLon + width / 2)) + 10);
-        all.push({ key: `${row}:${col}`, lat: +cLat.toFixed(3), lon: +cLon.toFixed(3), nm });
-      }
-    }
-    // nearest to the region's start point first (rings outward); big regions keep the busiest
-    const d = (c: Cell): number => distanceNm(r.from.lat, r.from.lon, c.lat, c.lon);
-    let cells = all.sort((a, b) => d(a) - d(b));
-    if (cells.length > r.max) {
-      const keep = new Set([...cells].sort((a, b) => (density.get(b.key) ?? 0) - (density.get(a.key) ?? 0)).slice(0, r.max).map((c) => c.key));
-      cells = cells.filter((c) => keep.has(c.key));
-    }
-    cells = cells.filter((c) => !seen.has(c.key) && seen.add(c.key));
-    return { name: r.name, cells };
-  });
-}
-
 /** Grid cell key containing a point. */
 function cellKey(lat: number, lon: number): string {
   const row = Math.min(Math.floor(180 / CELL_LAT) - 1, Math.max(0, Math.floor((lat + 90) / CELL_LAT)));
@@ -329,7 +255,8 @@ export class AdsbClient {
   types: Map<string, { at: number; states: AdsbState[] }>;
   typeInflight: Promise<unknown> | null;
   typeNextAt: number;
-  warm: WarmPlanRegion[] | null;
+  /** Middle of the most recent (non-clipped) view; the warm-up works around it. */
+  focus: { lat: number; lon: number } | null;
   warmTurn: number;
   lastActivityAt?: number;
 
@@ -344,22 +271,35 @@ export class AdsbClient {
     this.types = new Map(); // type code -> { at, states }
     this.typeInflight = null;
     this.typeNextAt = 0;
-    this.warm = null; // built lazily (needs airport density)
+    this.focus = null;
     this.warmTurn = 0;
     // long-running servers keep warming between requests; on serverless each request does it
     setInterval(() => this.warmTick(), 1500).unref?.();
   }
 
+  /** Cells around the last view, nearest the middle first. */
+  _warmCells(): Cell[] {
+    const f = this.focus;
+    if (!f) return [];
+    const r = WARM_RADIUS_DEG;
+    const box: BBox = {
+      lamin: Math.max(-90, f.lat - r),
+      lamax: Math.min(90, f.lat + r),
+      lomin: Math.max(-180, f.lon - r * 1.5),
+      lomax: Math.min(180, f.lon + r * 1.5),
+    };
+    return cellsFor(box).cells.slice(0, WARM_MAX_CELLS);
+  }
+
   /**
-   * Fills spare request slots with warm-region cells in strict priority order: the first
-   * stale cell of the first region that has one (India before anything else). Requests the
-   * map is waiting for always go first: this only uses the slots they leave free.
+   * Fills spare request slots with cells around the area people are viewing (nearest the
+   * middle first). Requests the map is waiting for always go first: this only uses the
+   * slots they leave free.
    */
   warmTick(): void {
     const now = Date.now();
     if (now - (this.lastActivityAt ?? 0) > 5 * 60_000) return; // nobody on the site
-    this.warm ??= warmPlan();
-    const queue = this.warm.flatMap((r) => r.cells).filter(
+    const queue = this._warmCells().filter(
       (c) => !this.cellInflight.has(c.key) && now - (this.cells.get(c.key)?.at ?? 0) > WARM_STALE_MS,
     );
     for (const cell of queue) {
@@ -368,35 +308,16 @@ export class AdsbClient {
     }
   }
 
-  /** Which warm regions are loaded (for /api/health). */
+  /** How much of the warm area is loaded (for /api/health). */
   warmStatus(): WarmStatus[] {
-    this.warm ??= warmPlan();
+    const cells = this._warmCells();
     const now = Date.now();
-    return this.warm.map((r) => ({
-      region: r.name,
-      cells: r.cells.length,
-      fresh: r.cells.filter((c) => now - (this.cells.get(c.key)?.at ?? 0) < CELL_MAX_AGE_MS).length,
-    }));
+    return [{
+      region: 'around the last view',
+      cells: cells.length,
+      fresh: cells.filter((c) => now - (this.cells.get(c.key)?.at ?? 0) < CELL_MAX_AGE_MS).length,
+    }];
   }
-
-  /**
-   * Loading screen: pushes the warm-up along (India first, from New Delhi outwards) and
-   * reports how much of India is loaded. Each call counts as site activity, so the warm-up
-   * keeps running while the loading screen polls.
-   */
-  indiaProgress(): IndiaProgress {
-    this.lastActivityAt = Date.now();
-    this.warmTick();
-    this.warm ??= warmPlan();
-    const india = this.warm[0];
-    const now = Date.now();
-    const fresh = india.cells
-      .map((c) => this.cells.get(c.key))
-      .filter((e): e is CellEntry => e !== undefined && now - e.at < CELL_MAX_AGE_MS);
-    const aircraft = new Set(fresh.flatMap((e) => e.states.map((s) => s[0]))).size;
-    return { region: india.name, cells: india.cells.length, loaded: fresh.length, aircraft };
-  }
-
   /** Runs requests to one host one at a time, REQUEST_GAP_MS apart. */
   _queued<T>(name: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.queues.get(name) ?? Promise.resolve();
@@ -530,7 +451,9 @@ export class AdsbClient {
       if (!this.cellInflight.has(c.key)) this._refreshCell(c, split, n++).catch(() => {});
     }
     this.lastActivityAt = Date.now();
-    this.warmTick(); // spare slots go to the warm regions
+    // a zoomed-out world view says nothing about where people are looking
+    if (bbox && !clipped) this.focus = { lat: (box.lamin + box.lamax) / 2, lon: (box.lomin + box.lomax) / 2 };
+    this.warmTick(); // spare slots go to the cells around the view
     if (!cells.some((c) => this.cells.has(c.key))) {
       const first = cells.slice(0, 4).map((c) => this.cellInflight.get(c.key)).filter(Boolean);
       const results = await Promise.race([
@@ -555,6 +478,7 @@ export class AdsbClient {
       time: Math.floor(Date.now() / 1000),
       states: mergeStates(lists),
       coverage: { cells: cells.length, loaded: fresh.length, clipped, worldTypes: clipped ? this.types.size : 0 },
+      provider: this.provider,
     };
   }
 

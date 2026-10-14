@@ -54,13 +54,23 @@ export async function GET(request: NextRequest) {
     sourceMode: client.mode,
     currentSource: client.kind,
     lastSource: client.sourceName,
+    // why ADS-B is (or was last) used instead of OpenSky, and when OpenSky is retried
+    sourceState: {
+      fallbackNow: client.mode === 'auto' && client.kind === 'adsb',
+      reason: client.lastReason,
+      note: client.fallbackNote,
+      retryAt: client.openskyDownUntil ? new Date(client.openskyDownUntil).toISOString() : null,
+      failures: client.downCount,
+      lastSwitch: client.lastSwitch ? { ...client.lastSwitch, at: new Date(client.lastSwitch.at).toISOString() } : null,
+      relay: client.opensky.relay,
+    },
     aircraftDb: db.loaded,
-    warmRegions: client.adsb.warmStatus(),
+    warmArea: client.adsb.warmStatus(),
     credits: client.credits,
     dailyCredits: config.feed.dailyCredits,
     lastError: feed.lastError,
     region: process.env.VERCEL_REGION ?? 'local',
-    cacheEntries: feed.cache.map((e) => ({ bbox: e.bbox, cost: e.cost, ageMs: Date.now() - e.fetchedAt, count: e.states.length })),
+    cacheEntries: feed.cache.map((e) => ({ kind: e.kind, source: e.source, bbox: e.bbox, cost: e.cost, ageMs: Date.now() - e.fetchedAt, count: e.states.length })),
   };
   const body: typeof base & { probes?: ProbeResult[] } = base;
   if (new URL(request.url).searchParams.get('probe') === '1') body.probes = await Promise.all(PROBES.map(probe));

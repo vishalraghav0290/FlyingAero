@@ -12,6 +12,7 @@ const TOKEN_URL =
   'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
 const API_BASE = 'https://opensky-network.org/api';
 const REQUEST_TIMEOUT_MS = 20_000;
+const RELAY_TIMEOUT_MS = 10_000; // a dead home relay should fail over to ADS-B quickly
 
 export interface OpenSkyErrorOptions {
   status?: number;
@@ -35,6 +36,9 @@ export interface OpenSkyClientOptions {
   clientSecret?: string;
   relayUrl?: string;
   relayKey?: string;
+  /** Cloudflare Access service token (when the relay hostname is behind Access) */
+  relayAccessId?: string;
+  relayAccessSecret?: string;
 }
 
 /** Query parameter values accepted by `_get` (arrays become repeated keys). */
@@ -57,7 +61,7 @@ export class OpenSkyClient {
    * relayUrl / relayKey: optional relay (legacy/relay/server.js) for hosts whose
    * IPs OpenSky blocks. When set, the token and API calls go through it.
    */
-  constructor({ clientId, clientSecret, relayUrl, relayKey }: OpenSkyClientOptions = {}) {
+  constructor({ clientId, clientSecret, relayUrl, relayKey, relayAccessId, relayAccessSecret }: OpenSkyClientOptions = {}) {
     this.clientId = clientId || '';
     this.clientSecret = clientSecret || '';
     const relay = (relayUrl || '').replace(/\/+$/, '');
@@ -65,11 +69,19 @@ export class OpenSkyClient {
     this.tokenUrl = relay ? `${relay}/token` : TOKEN_URL;
     this.apiBase = relay ? `${relay}/api` : API_BASE;
     this.extraHeaders = relay ? { 'X-Relay-Key': relayKey || '' } : {};
+    if (relay && relayAccessId && relayAccessSecret) {
+      this.extraHeaders['CF-Access-Client-Id'] = relayAccessId;
+      this.extraHeaders['CF-Access-Client-Secret'] = relayAccessSecret;
+    }
     this._token = null;
     this._tokenExpiry = 0;
     this._tokenPromise = null;
     /** Last known remaining credits per bucket: { states, tracks, flights } */
     this.credits = { states: null, tracks: null, flights: null };
+  }
+
+  get timeoutMs(): number {
+    return this.relay ? RELAY_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
   }
 
   get authenticated(): boolean {
@@ -90,7 +102,7 @@ export class OpenSkyClient {
           client_id: this.clientId,
           client_secret: this.clientSecret,
         }),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(this.timeoutMs),
       });
       if (!res.ok) {
         // Never include the secret in errors; the body is Keycloak's error JSON.
@@ -123,7 +135,7 @@ export class OpenSkyClient {
     const doFetch = async (token: string | null): Promise<Response> => {
       const headers: Record<string, string> = { Accept: 'application/json', ...this.extraHeaders };
       if (token) headers.Authorization = `Bearer ${token}`;
-      return fetch(url, { headers, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      return fetch(url, { headers, signal: AbortSignal.timeout(this.timeoutMs) });
     };
 
     let res = await doFetch(await this._getToken());
@@ -157,6 +169,21 @@ export class OpenSkyClient {
     const params: Record<string, QueryValue> = { extended: 1 };
     if (bbox) Object.assign(params, bbox);
     return this._get<StatesResult>('/states/all', params, 'states');
+  }
+
+  /**
+   * Quick reachability check, used before switching back from ADS-B. Through a relay this
+   * asks the relay's public /health (so a dead tunnel is noticed in seconds); direct
+   * connections have nothing cheap to ask, so they simply report true.
+   */
+  async ping(timeoutMs = 3000): Promise<boolean> {
+    if (!this.relay) return true;
+    try {
+      const res = await fetch(this.apiBase.replace(/\/api$/, '') + '/health', { signal: AbortSignal.timeout(timeoutMs) });
+      return res.ok;
+    } catch {
+      return false;
+    }
   }
 
   /** States for specific aircraft (used to keep the selected flight even when off-screen). */

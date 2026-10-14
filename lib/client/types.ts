@@ -86,6 +86,9 @@ export interface Credits {
   daily?: number;
 }
 
+/** OpenSky and the ADS-B aggregators (adsb.lol / adsb.fi) are never mixed in one view. */
+export type SourceKind = 'opensky' | 'adsb';
+
 /** Body of a successful /api/states response. */
 export interface StatesResponse {
   /** Server clock, ms. */
@@ -104,6 +107,10 @@ export interface StatesResponse {
     coverage: AreaCoverage | null;
   };
   source: string;
+  /** Kind of source behind this snapshot; the browser resets its aircraft when it changes. */
+  sourceKind: SourceKind;
+  /** Why OpenSky is being skipped right now (only while ADS-B stands in for it). */
+  sourceNote?: string | null;
   credits: Credits;
   fields: StateField[];
   count: number;
@@ -119,6 +126,9 @@ export interface FeedOkStatus {
   credits: Credits;
   intervalMs: number;
   source: string;
+  sourceKind: SourceKind;
+  /** Aircraft in the response. */
+  count: number;
   /** Round-trip time of the request, ms. */
   tookMs: number;
   loading: AreaCoverage | null;
@@ -134,6 +144,8 @@ export interface FeedErrorStatus {
   credits?: undefined;
   intervalMs?: undefined;
   source?: undefined;
+  sourceKind?: undefined;
+  count?: undefined;
   tookMs?: undefined;
   loading?: undefined;
 }

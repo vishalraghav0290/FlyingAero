@@ -23,6 +23,9 @@ export function loadConfig() {
       // optional relay for hosts OpenSky blocks (see legacy/relay/server.js)
       relayUrl: (e.OPENSKY_RELAY_URL || '').trim(),
       relayKey: (e.OPENSKY_RELAY_KEY || '').trim(),
+      // optional Cloudflare Access service token in front of the relay hostname
+      relayAccessId: (e.OPENSKY_RELAY_ACCESS_ID || '').trim(),
+      relayAccessSecret: (e.OPENSKY_RELAY_ACCESS_SECRET || '').trim(),
     },
     feed: {
       // OpenSky's authenticated time resolution is 5 s, so polling faster is pointless.

@@ -1,16 +1,19 @@
 /**
- * AeroTrack OpenSky relay: a tiny Node server for Koyeb / Render (no dependencies).
+ * AeroTrack OpenSky relay: a tiny Node server for home / VPS deployment.
  *
  * OpenSky drops connections from Vercel and Cloudflare, so the app sends its OpenSky calls
- * here instead. Not an open proxy:
+ * here instead. The relay holds the OpenSky credentials itself — the app only needs the
+ * relay URL and relay key. Not an open proxy:
  *  - GET  /health          public: liveness check ("ok", no data)
  *  - GET  /probe           checks whether OpenSky answers from this host (needs X-Relay-Key)
- *  - POST /token           -> OpenSky OAuth2 token endpoint       (needs X-Relay-Key)
  *  - GET  /api/states/all  -> OpenSky /api/states/all             (needs X-Relay-Key)
  *  - GET  /api/tracks/all  -> OpenSky /api/tracks/all             (needs X-Relay-Key)
- * Anything else returns 404. The OpenSky credentials stay with the app; they only pass
- * through in the token request and are never logged.
- * Successful /api answers are cached in memory for CACHE_TTL_S seconds (default 5); see below.
+ *
+ * Legacy pass-through mode (POST /token + forwarded Bearer) still works when the app sends
+ * its own credentials, but the preferred mode is credential-free: the relay fetches and
+ * caches its own OAuth2 token using OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET.
+ *
+ * Successful /api answers are cached in memory for CACHE_TTL_S seconds (default 5).
  */
 import http from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -23,13 +26,61 @@ type FetchError = Error & { cause?: { code?: string } };
 const PORT = Number(process.env.PORT) || 8000;
 // RELAY_KEY_FILE (Docker secret) is preferred: env values show up in `docker inspect`.
 const KEY = (process.env.RELAY_KEY_FILE ? readFileSync(process.env.RELAY_KEY_FILE, 'utf8') : process.env.RELAY_KEY || '').trim();
+const OPENSKY_CLIENT_ID = (process.env.OPENSKY_CLIENT_ID || '').trim();
+const OPENSKY_CLIENT_SECRET = (process.env.OPENSKY_CLIENT_SECRET || '').trim();
 const TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
 const API = 'https://opensky-network.org';
 const API_PATHS = new Set(['/api/states/all', '/api/tracks/all']);
-const FORWARD_REQ = ['authorization', 'content-type', 'accept'] as const;
+const FORWARD_REQ = ['content-type', 'accept'] as const; // no longer forwarding 'authorization'
 const FORWARD_RES = ['content-type', 'x-rate-limit-remaining', 'x-rate-limit-retry-after-seconds'];
 const MAX_BODY = 8 * 1024;
 
+// ── Self-managed OAuth2 token ─────────────────────────────────────────────────
+// When OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET are set the relay fetches its own token,
+// caches it, and refreshes ~30 s before expiry. The Vercel app sends no credentials.
+interface TokenState {
+  token: string | null;
+  expiry: number;
+  promise: Promise<string | null> | null;
+}
+const tokenState: TokenState = { token: null, expiry: 0, promise: null };
+
+async function getToken(): Promise<string | null> {
+  if (!OPENSKY_CLIENT_ID || !OPENSKY_CLIENT_SECRET) return null;
+  if (tokenState.token && Date.now() < tokenState.expiry - 30_000) return tokenState.token;
+  if (tokenState.promise) return tokenState.promise;
+
+  tokenState.promise = (async () => {
+    const res = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: OPENSKY_CLIENT_ID,
+        client_secret: OPENSKY_CLIENT_SECRET,
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.error(`[relay] Token fetch failed (${res.status}): ${text.slice(0, 200)}`);
+      return null;
+    }
+    const json = await res.json() as { access_token: string; expires_in?: number };
+    tokenState.token = json.access_token;
+    tokenState.expiry = Date.now() + (json.expires_in || 1800) * 1000;
+    console.log(`[relay] OpenSky token refreshed, expires in ${json.expires_in ?? 1800} s`);
+    return tokenState.token;
+  })();
+
+  try {
+    return await tokenState.promise;
+  } finally {
+    tokenState.promise = null;
+  }
+}
+
+// ── Cache ─────────────────────────────────────────────────────────────────────
 // Short in-memory cache for OpenSky answers (CACHE_TTL_S, default 5 s; 0 turns it off).
 // OpenSky's own time resolution is 5 s, so a 5 s cache loses nothing, and several app
 // instances (Vercel + local dev) asking for the same area cost one credit instead of many.
@@ -100,7 +151,11 @@ async function probe(): Promise<string> {
     'opensky-api': `${API}/api/states/all?lamin=28&lomin=77&lamax=28.5&lomax=77.5`,
     'control (example.com)': 'https://example.com/',
   };
-  const out: Record<string, string | boolean> = { host: process.env.RENDER ? 'render' : process.env.KOYEB_APP_NAME ? 'koyeb' : 'other', keyConfigured: Boolean(KEY) };
+  const out: Record<string, string | boolean> = {
+    host: process.env.RENDER ? 'render' : process.env.KOYEB_APP_NAME ? 'koyeb' : 'other',
+    keyConfigured: Boolean(KEY),
+    credentialsConfigured: Boolean(OPENSKY_CLIENT_ID && OPENSKY_CLIENT_SECRET),
+  };
   await Promise.all(
     Object.entries(targets).map(async ([name, url]) => {
       const t0 = Date.now();
@@ -142,25 +197,41 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, await probe(), 'application/json');
     }
 
-    let target: string;
-    if (req.method === 'POST' && url.pathname === '/token') target = TOKEN_URL;
-    else if (req.method === 'GET' && API_PATHS.has(url.pathname)) target = API + url.pathname + url.search;
-    else return send(res, 404, 'Not found');
-    if (!keyOk(req)) return send(res, KEY ? 403 : 503, KEY ? 'Forbidden' : 'RELAY_KEY not configured');
-
-    const headers: Record<string, string> = {};
-    for (const h of FORWARD_REQ) {
-      const v = req.headers[h];
-      if (v) headers[h] = v;
-    }
-
-    if (req.method === 'POST') {
-      // token requests are never cached or shared
-      const upstream = await fetch(target, { method: 'POST', headers, body: await readBody(req), signal: AbortSignal.timeout(25_000) });
+    // Legacy: POST /token — pass through for backward compat (app sends its own credentials).
+    // Preferred: omit this; app sends no credentials and relay uses its own token below.
+    if (req.method === 'POST' && url.pathname === '/token') {
+      if (!keyOk(req)) return send(res, KEY ? 403 : 503, KEY ? 'Forbidden' : 'RELAY_KEY not configured');
+      const headers: Record<string, string> = {};
+      for (const h of ['content-type'] as const) {
+        const v = req.headers[h];
+        if (v) headers[h] = v;
+      }
+      const upstream = await fetch(TOKEN_URL, { method: 'POST', headers, body: await readBody(req), signal: AbortSignal.timeout(25_000) });
       return reply(res, await toCached(upstream), 'MISS', false);
     }
 
-    // GET /api/...: identical requests within CACHE_TTL_S share one OpenSky call (and one credit)
+    // GET /api/states/all  or  /api/tracks/all
+    if (!(req.method === 'GET' && API_PATHS.has(url.pathname))) return send(res, 404, 'Not found');
+    if (!keyOk(req)) return send(res, KEY ? 403 : 503, KEY ? 'Forbidden' : 'RELAY_KEY not configured');
+
+    // Build upstream headers. Use the relay's own token if credentials are configured;
+    // otherwise fall back to whatever Bearer the app sent (legacy / local dev mode).
+    const headers: Record<string, string> = {};
+    for (const h of FORWARD_REQ) {
+      const v = req.headers[h as string];
+      if (v) headers[h] = v as string;
+    }
+    const ownToken = await getToken();
+    if (ownToken) {
+      // Relay manages auth — inject our token, ignore whatever the app sent
+      headers['Authorization'] = `Bearer ${ownToken}`;
+    } else {
+      // Fall back to the Bearer the app forwarded (legacy mode)
+      const appAuth = req.headers['authorization'];
+      if (appAuth) headers['Authorization'] = appAuth as string;
+    }
+
+    const target = API + url.pathname + url.search;
     const key = url.pathname + url.search;
     const hit = cache.get(key);
     if (hit && Date.now() - hit.at < TTL_MS) return reply(res, hit, 'HIT', true);
@@ -185,4 +256,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => console.log(`OpenSky relay listening on :${PORT}`));
+server.listen(PORT, '0.0.0.0', () => {
+  const creds = OPENSKY_CLIENT_ID && OPENSKY_CLIENT_SECRET ? 'relay-managed credentials ✓' : 'NO credentials — relay will forward app Bearer (legacy mode)';
+  console.log(`OpenSky relay listening on :${PORT} | ${creds}`);
+});

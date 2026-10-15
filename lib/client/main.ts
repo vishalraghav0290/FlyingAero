@@ -16,7 +16,7 @@ import { settings } from './settings.ts';
 import { NavaidLayer, formatFrequency } from './navaids.ts';
 import { runLoader } from './loader.ts';
 import type { PickingInfo } from '@deck.gl/core';
-import type { Aircraft, FeedStatus, ToastKind } from './types.ts';
+import type { Aircraft, FeedStatus, SourceKind, ToastKind } from './types.ts';
 
 /** Debug handle exposed as `window.aerotrack`. */
 export interface AeroTrackDebug {
@@ -51,14 +51,14 @@ async function run(): Promise<void> {
 
   theme.current = themeById(settings.mapStyle);
   document.body.dataset.theme = theme.current.light ? 'light' : 'dark';
-  const initialStyle = await buildStyle(theme.current);
+  // the starting view (saved view, visitor's location or default) is looked up while the style loads
+  const [initialStyle, view] = await Promise.all([buildStyle(theme.current), initialView()]);
   const FRAME_INTERVAL_MS = 250; // FR24 advances animated sprite frames every 250 ms
 
   // Elements rendered by AeroTrackApp; they're always in the markup.
   const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 
   // ---------- Map ----------
-  const view = initialView();
   const map = new MapLibreMap({
     container: 'map',
     style: initialStyle,
@@ -251,7 +251,7 @@ async function run(): Promise<void> {
     let text = '';
     if (s.ok && s.loading) {
       const pct = Math.round((s.loading.loaded / s.loading.cells) * 100);
-      text = `Free flight data sources are slow. India loads first, other areas follow (${pct}% of this view loaded).`;
+      text = `Free flight data sources are slow. This view is filling in area by area (${pct}% loaded).`;
     } else if (s.ok && s.tookMs > 4000) {
       text = 'The flight data source is responding slowly. Aircraft may update late.';
     }
@@ -294,15 +294,29 @@ async function run(): Promise<void> {
   }
   setInterval(updateStatus, 1000);
 
+  // Only exists on the ADS-B sources; with OpenSky there is no loading screen.
+  const loader = runLoader();
+  let lastSourceKind: SourceKind | null = null;
+
   const feed = new Feed(map, {
     getSelected: () => selection.liveId,
     isFollowing: () => selection.following,
     onData: (body) => {
+      if (lastSourceKind && body.sourceKind !== lastSourceKind) {
+        // OpenSky and ADS-B are never mixed: drop every aircraft, position and trail of the
+        // old source before showing the new one.
+        store.reset();
+        selection.reloadTrail();
+        showToast(body.sourceKind === 'adsb' ? (body.sourceNote ?? `Showing ${body.source} data.`) : 'Back on OpenSky data.', 'notice');
+        console.info('[aerotrack] data source', lastSourceKind, '->', body.sourceKind, body.sourceNote ?? '');
+      }
+      lastSourceKind = body.sourceKind;
       store.apply(body);
       selection.onFeed();
       tick();
     },
     onStatus: (s) => {
+      loader.update(s);
       updateSlowNotice(s);
       feedState = s;
       layers.feedError = Boolean(s.failing);
@@ -342,11 +356,9 @@ async function run(): Promise<void> {
   updateClock();
   setInterval(updateClock, 10_000);
 
-  // The feed starts as soon as the map loads; the loading screen covers it until India is in,
-  // then one refresh pulls everything the warm-up loaded.
-  const mapReady = new Promise<void>((resolve) => map.once('load', () => resolve()));
-  mapReady.then(() => feed.start());
-  runLoader({ mapReady, onDone: () => mapReady.then(() => feed.refresh()) });
+  // The feed starts as soon as the map loads. On ADS-B the loading screen covers the map until
+  // the cells around the view are in (it follows the feed's progress).
+  map.once('load', () => feed.start());
   // Every style load (first load and each switch) needs India's borders applied again.
   map.on('style.load', () => applyIndiaView(map));
   applyBrightness(map, settings.brightness);

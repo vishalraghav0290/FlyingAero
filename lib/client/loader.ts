@@ -1,37 +1,38 @@
 /**
- * Initial loading screen. The free ADS-B sources allow about one request per second, so the
- * server loads India cell by cell, from New Delhi outwards (see lib/server/adsb.ts warm-up).
- * The screen stays up until all of India is loaded and the map is ready, so the first view
- * is complete instead of filling in. It shows progress, can be skipped, and gives up after
- * MAX_WAIT_MS so a slow source never locks anyone out.
+ * Initial loading screen, only rendered when the app runs on the free ADS-B sources
+ * (adsb.lol / adsb.fi). They allow about one request per second, so a view fills in cell by
+ * cell, starting from the middle of what the user is looking at. The screen follows that
+ * progress (reported by every /api/states response) and closes once the cells around the
+ * centre are in; the rest of the view streams in behind the map. OpenSky answers a whole area
+ * in one request, so with OpenSky there is no loading screen at all.
+ *
+ * It can be skipped and gives up after MAX_WAIT_MS, so a slow source never locks anyone out.
  */
-import type { IndiaProgress } from '../server/adsb.ts';
+import type { FeedStatus } from './types.ts';
 
-/** Body of /api/warmup. */
-interface WarmupProgress extends IndiaProgress {
-  done: boolean;
+export interface Loader {
+  /** Feed the latest feed status in; closes the screen when the view is loaded. */
+  update(status: FeedStatus): void;
 }
 
-export interface LoaderOptions {
-  /** Resolves when the map has loaded. */
-  mapReady: Promise<void>;
-  /** Called once when the screen closes (India loaded, skipped or timed out). */
-  onDone: () => void;
-}
-
-const POLL_MS = 1000;
-// A cold server needs ~50 s for all of India (39 areas at ~1 request/s per free source);
-// a warm one answers at once.
-const MAX_WAIT_MS = 75_000;
-const MAX_FAILURES = 3;
+const MAX_WAIT_MS = 30_000;
 const FADE_MS = 400;
+// The server loads cells nearest the middle of the view first, so this many is enough to
+// show the map.
+const READY_CELLS = 8;
 
-export function runLoader({ mapReady, onDone }: LoaderOptions): void {
+const NOOP: Loader = { update() {} };
+
+export function runLoader(): Loader {
   const el = document.getElementById('loader');
-  if (!el || el.hidden) {
-    onDone();
-    return;
+  if (!el || el.hidden) return NOOP;
+
+  // Shared links (a "#lat,lon/zoom" view or ?aircraft=) open somewhere specific: no wait.
+  if (/^#-?\d/.test(location.hash) || new URLSearchParams(location.search).has('aircraft')) {
+    el.hidden = true;
+    return NOOP;
   }
+
   const fill = document.getElementById('loader-fill') as HTMLElement;
   const bar = document.getElementById('loader-bar') as HTMLElement;
   const sub = document.getElementById('loader-sub') as HTMLElement;
@@ -39,69 +40,35 @@ export function runLoader({ mapReady, onDone }: LoaderOptions): void {
   const skip = document.getElementById('loader-skip') as HTMLButtonElement;
 
   let finished = false;
-  let mapLoaded = false;
-  let indiaLoaded = false;
-  let failures = 0;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timer = setTimeout(finish, MAX_WAIT_MS);
 
   function finish(): void {
     if (finished) return;
     finished = true;
-    clearTimeout(timer ?? undefined);
+    clearTimeout(timer);
     el!.dataset.state = 'done';
     el!.setAttribute('aria-busy', 'false');
     setTimeout(() => (el!.hidden = true), FADE_MS);
-    onDone();
-  }
-
-  // Shared links (a "#lat,lon/zoom" view or ?aircraft=) open somewhere specific: no wait.
-  if (/^#-?\d/.test(location.hash) || new URLSearchParams(location.search).has('aircraft')) {
-    el.hidden = true;
-    finished = true;
-    onDone();
-    return;
   }
 
   skip.addEventListener('click', finish);
-  mapReady.then(() => {
-    mapLoaded = true;
-    if (indiaLoaded) finish();
-  });
 
-  function show(p: WarmupProgress): void {
-    const pct = p.cells ? Math.round((p.loaded / p.cells) * 100) : 100;
-    fill.style.width = `${pct}%`;
-    bar.setAttribute('aria-valuenow', String(pct));
-    sub.textContent = p.loaded
-      ? 'Spreading out from New Delhi. Free data sources load one area at a time.'
-      : 'Starting from New Delhi…';
-    count.textContent = p.cells
-      ? `${p.loaded} of ${p.cells} areas · ${p.aircraft.toLocaleString()} aircraft`
-      : 'Almost ready…';
-  }
-
-  async function poll(): Promise<void> {
-    if (finished) return;
-    try {
-      const r = await fetch('/api/warmup', { cache: 'no-store' });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const p = (await r.json()) as WarmupProgress;
-      failures = 0;
-      show(p);
-      if (p.done) {
-        indiaLoaded = true;
-        if (mapLoaded) finish();
-        else count.textContent = `${p.aircraft.toLocaleString()} aircraft loaded · drawing the map…`;
+  return {
+    update(s: FeedStatus): void {
+      if (finished) return;
+      // don't hold the map hostage to a failing feed; it has its own error message
+      if (!s.ok) {
+        if (s.failing) finish();
+        return;
       }
-    } catch {
-      // the map has its own error handling; don't hold it hostage to the progress endpoint
-      if (++failures >= MAX_FAILURES) return finish();
-    }
-    if (!indiaLoaded) timer = setTimeout(poll, POLL_MS);
-    else mapReady.then(finish); // India is in; close as soon as the map is drawn
-  }
-
-  // after MAX_WAIT_MS close regardless (e.g. the map itself is slow to load)
-  setTimeout(finish, MAX_WAIT_MS);
-  poll();
+      const l = s.loading;
+      if (!l) return finish();
+      const pct = l.cells ? Math.round((l.loaded / l.cells) * 100) : 0;
+      fill.style.width = `${pct}%`;
+      bar.setAttribute('aria-valuenow', String(pct));
+      sub.textContent = 'Loading aircraft around your view. Free data sources load one area at a time.';
+      count.textContent = `${l.loaded} of ${l.cells} areas · ${s.count.toLocaleString()} aircraft`;
+      if (l.loaded >= Math.min(l.cells, READY_CELLS)) finish();
+    },
+  };
 }

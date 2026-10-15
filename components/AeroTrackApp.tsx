@@ -17,8 +17,11 @@ const PlaneIcon = (props: SVGProps<SVGSVGElement>) => (
  * component has no state, so React never re-renders over that work. Animating thousands
  * of aircraft at up to 60 fps through React state would be far slower.
  * The engine is loaded in an effect, so none of it runs during server rendering.
+ *
+ * showLoader: render the loading screen. Only the ADS-B sources need one (they fill a view
+ * cell by cell); OpenSky answers a whole area at once, so the map opens straight away.
  */
-export default function AeroTrackApp() {
+export default function AeroTrackApp({ showLoader = false }: { showLoader?: boolean }) {
   useEffect(() => {
     let cancelled = false;
     import('@/lib/client/main')
@@ -255,7 +258,8 @@ export default function AeroTrackApp() {
 
       <div id="toast" className="toast" role="alert" hidden />
 
-      {/* Initial loading screen: stays up until the planes over India are loaded (lib/client/loader.ts) */}
+      {/* Initial loading screen (ADS-B sources only): stays up until the planes around the view are in (lib/client/loader.ts) */}
+      {showLoader && (
       <div id="loader" className="loader" role="status" aria-live="polite" aria-busy="true">
         <div className="loader__card">
           <svg className="loader__radar" viewBox="0 0 24 24" width="56" height="56" aria-hidden="true">
@@ -267,15 +271,15 @@ export default function AeroTrackApp() {
           <p className="loader__brand">
             aero<strong>track</strong> <span>by Vishal Raghav</span>
           </p>
-          <p className="loader__title">Loading live flights over India</p>
+          <p className="loader__title">Loading live flights</p>
           <p className="loader__sub" id="loader-sub">
-            Starting from New Delhi…
+            Fetching aircraft around your view…
           </p>
           <div
             className="loader__bar"
             id="loader-bar"
             role="progressbar"
-            aria-label="Flights loaded over India"
+            aria-label="Flights loaded in view"
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={0}
@@ -290,6 +294,7 @@ export default function AeroTrackApp() {
           </button>
         </div>
       </div>
+      )}
     </div>
   );
 }

@@ -88,6 +88,14 @@ export class OpenSkyClient {
     return Boolean(this.clientId && this.clientSecret);
   }
 
+  /**
+   * True when the relay is expected to inject its own Bearer token.
+   * In this mode the client sends no Authorization header and skips _getToken().
+   */
+  get relayManagesAuth(): boolean {
+    return this.relay && !this.authenticated;
+  }
+
   async _getToken({ force = false }: { force?: boolean } = {}): Promise<string | null> {
     if (!this.authenticated) return null;
     if (!force && this._token && Date.now() < this._tokenExpiry - 30_000) return this._token;
@@ -138,9 +146,15 @@ export class OpenSkyClient {
       return fetch(url, { headers, signal: AbortSignal.timeout(this.timeoutMs) });
     };
 
-    let res = await doFetch(await this._getToken());
-    if (res.status === 401 && this.authenticated) {
-      res = await doFetch(await this._getToken({ force: true }));
+    // When the relay manages auth itself, skip token fetching — the relay injects Bearer.
+    let res: Response;
+    if (this.relayManagesAuth) {
+      res = await doFetch(null);
+    } else {
+      res = await doFetch(await this._getToken());
+      if (res.status === 401 && this.authenticated) {
+        res = await doFetch(await this._getToken({ force: true }));
+      }
     }
 
     const remaining = res.headers.get('x-rate-limit-remaining');

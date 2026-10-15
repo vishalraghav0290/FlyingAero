@@ -50,7 +50,10 @@ function create(): Services {
     auto: 'OpenSky first, ADS-B (adsb.lol / adsb.fi) when OpenSky fails',
   }[client.mode];
   const via = client.opensky.relay ? `via relay ${new URL(config.opensky.relayUrl).host}` : 'directly';
-  console.log(`[aerotrack] Data source mode: ${client.mode} = ${how}; OpenSky is called ${via}, credentials ${client.authenticated ? 'set' : 'NOT set'}`);
+  const authNote = client.opensky.relayManagesAuth
+    ? 'relay-managed (credentials on relay side)'
+    : client.authenticated ? 'set' : 'NOT set';
+  console.log(`[aerotrack] Data source mode: ${client.mode} = ${how}; OpenSky is called ${via}, credentials ${authNote}`);
   const db = new AircraftDb();
   const t0 = Date.now();
   if (db.load()) console.log(`[aerotrack] Aircraft database: ${db.lines.size.toLocaleString()} aircraft (${Date.now() - t0} ms)`);
@@ -62,7 +65,7 @@ function create(): Services {
     setAirportDensity(airports.rows); // lets zoomed-out ADS-B views load busy areas first
   }
   else console.warn('[aerotrack] Airports missing: run `npm run setup:geodata`.');
-  if (!client.authenticated && client.mode !== 'adsb') {
+  if (!client.authenticated && !client.opensky.relayManagesAuth && client.mode !== 'adsb') {
     console.warn('[aerotrack] OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET not set: anonymous OpenSky access (400 credits/day).');
   }
 
